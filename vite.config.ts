@@ -26,6 +26,7 @@ function shots(): Plugin {
 
 export default defineConfig({
   root: 'client',
+  base: process.env.VITE_BASE_PATH ?? '/',
   publicDir: 'public',
   plugins: [shots()],
   server: { port: 5173, host: true },
