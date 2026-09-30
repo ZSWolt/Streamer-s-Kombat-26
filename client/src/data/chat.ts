@@ -1,32 +1,38 @@
-// Fake stream chat that reacts to the fight. All lines are harmless banter.
+// Fake stream chat that reacts to the fight. Names and lines are loaded from editable text files:
+//   client/public/assets/chat/chatters.txt   (one name per line, optional "|mod" / "|vip" / "|sub" / "|og" badge)
+//   client/public/assets/chat/messages.txt   ([section] headers, one message per line)
+// The lists below are only a fallback if the files are missing.
 
-export const USERS = [
+export interface Chatter { name: string; badge: '' | 'mod' | 'vip' | 'sub' | 'og' }
+
+export let USERS: Chatter[] = [
   'tal16373', 'ilaycz', 'et18', 'Kuma1234', 'Stern18', 'zlixy132', 'jack4reall', 'Liad1010', 'Laviehoyo', 'yoav_gg',
   'noam.k', 'shaked_x', 'itay_pro', 'ofir777', 'danaaa', 'omer_big', 'NachuM', 'batsek', 'H_Heisey', 'Yoavguber',
-  'Ron_cs', 'maya.k', 'eden_fan', 'kicker_1', 'amit770', 'bruvvv69', 'Exotic_Buttersz', 'Ryoukon', 'PlatyXD', 'nevo2911k',
-];
+].map((name) => ({ name, badge: '' as const }));
+
+export const BADGE_ICON: Record<Chatter['badge'], string> = { '': '', mod: '🗡️', vip: '💎', sub: '⭐', og: '👑' };
 
 export const USER_COLORS = ['#53fc18', '#ff6b6b', '#4dabf7', '#ffd43b', '#cc5de8', '#ff922b', '#20c997', '#f783ac', '#94d82d', '#74c0fc'];
 
 export const EMOTES = ['KEKW', 'OMEGALUL', 'PogChamp', 'LUL', 'monkaS', 'Sadge', 'EZ', 'W', '🔥', '💀', '😭', '🤣', '👀', '🫡', 'GIGACHAD', 'Copium'];
 
-export const LINES: Record<string, string[]> = {
-  idle: ['יאללה תתחילו', 'מי מנצח לדעתכם?', 'אני על {p1}', '{p2} לוקח את זה בקלות', 'איזה זירה', 'W סטרים', 'כמה צופים יש', 'פרשנות?', 'גגגגג', '👀👀👀', 'first', 'סאבים בצ\'אט!!'],
-  hit: ['אוףףף', 'KEKW', 'הרגיש את זה', 'ווווו', '💀', 'חחחחחחח', 'OMEGALUL', 'אחי', 'W', 'LUL'],
-  bigHit: ['איזה מכה!!!', 'OMEGALUL', 'קליפ!!!', 'CLIP IT', '💀💀💀', 'הוא מת', 'ווואלה', 'PogChamp', 'אחי הפרצוף שלו חחח', 'ריספקט'],
-  block: ['תחסום אחי', 'מחסום', 'הגנה של אלופים', 'EZ block', 'היי יש קיר'],
-  combo: ['איזה קומבו!!!', 'COMBO', 'GIGACHAD', 'הוא בלופ', 'תן לו לשחק 😭', 'קליפ קליפ קליפ', '{n} מכות ברצף???', 'PogChamp PogChamp'],
-  special: ['המהלך הזה 🔥', 'חחחחחחח המהלך', 'מה זה היה', 'LETS GOOO', 'W מהלך', 'אגדי'],
-  hype: ['HYPE!!!!', '🔥🔥🔥🔥', 'הוא עשה את זה', 'POGGERS', 'צ\'אט תתכוננו', 'LETSGOOOOO'],
-  lowHp: ['{low} על חוט', 'Copium', 'עוד מכה אחת...', 'monkaS', 'תחזיק מעמד!!', 'Sadge'],
-  ko: ['GG', 'GGGGGG', 'נגמר', 'איזה הפסד', 'EZ', 'W {win}', 'L {lose}', 'קליפ!!!!', 'Sadge'],
-  finish: ['תגמור אותו!!!', 'BANALITY BANALITY', 'עשה את הבנאליטי!!', '↓↓+U ↓↓+U', 'צ\'אט מה הוא יעשה', '👀👀👀👀'],
-  banality: ['WHAT', 'OMEGALUL OMEGALUL', 'אני מת חחחחחחח', 'הכי טוב במשחק', 'קליפ של השנה', '💀💀💀💀💀'],
-  perfect: ['FLAWLESS', 'בלי שריטה', 'GIGACHAD', 'אפילו לא נגע בו'],
-  throw: ['הטלה!!', 'לקח אותו חחח', 'WWE'],
-  counter: ['קאונטר!!!', 'READ', 'הוא ידע', 'GIGACHAD read'],
-  jump: ['למה הוא קופץ', 'מקפץ כל הזמן חחח'],
-  timeOver: ['נגמר הזמן?!', 'איזה משחק זה', 'טיימר מסוכן'],
+export let LINES: Record<string, string[]> = {
+  idle: ['יאללה תתחילו', 'מי מנצח לדעתכם?', 'אני על {p1}', '{p2} לוקח את זה בקלות', 'W סטרים', 'גגגגג', '👀👀👀'],
+  hit: ['אוףףף', 'KEKW', 'הרגיש את זה', 'ווווו', '💀', 'חחחחחחח'],
+  bigHit: ['איזה מכה!!!', 'OMEGALUL', 'קליפ!!!', 'CLIP IT', '💀💀💀'],
+  block: ['תחסום אחי', 'מחסום', 'EZ block'],
+  combo: ['איזה קומבו!!!', 'COMBO', 'GIGACHAD', '{n} מכות ברצף???'],
+  special: ['המהלך הזה 🔥', 'מה זה היה', 'LETS GOOO'],
+  hype: ['HYPE!!!!', '🔥🔥🔥🔥', 'POGGERS'],
+  lowHp: ['{low} על חוט', 'Copium', 'monkaS'],
+  ko: ['GG', 'GGGGGG', 'EZ', 'W {win}', 'L {lose}'],
+  finish: ['תגמור אותו!!!', 'BANALITY BANALITY', '👀👀👀👀'],
+  banality: ['WHAT', 'OMEGALUL OMEGALUL', 'קליפ של השנה'],
+  perfect: ['FLAWLESS', 'GIGACHAD'],
+  throw: ['הטלה!!', 'WWE'],
+  counter: ['קאונטר!!!', 'READ'],
+  jump: ['למה הוא קופץ'],
+  timeOver: ['נגמר הזמן?!'],
 };
 
 export const ALERTS = {
@@ -43,4 +49,35 @@ export function pick<T>(a: T[]): T {
 
 export function fill(t: string, vars: Record<string, string | number>) {
   return t.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? ''));
+}
+
+function lines(txt: string): string[] {
+  return txt.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+}
+
+/** Load chatters.txt + messages.txt (call once at boot; silently keeps the fallback lists on failure) */
+export async function loadChatFiles() {
+  try {
+    const r = await fetch('assets/chat/chatters.txt', { cache: 'no-cache' });
+    if (r.ok) {
+      const list = lines(await r.text()).map((l) => {
+        const [name, badge = ''] = l.split('|').map((x) => x.trim());
+        return { name, badge: (['mod', 'vip', 'sub', 'og'].includes(badge) ? badge : '') as Chatter['badge'] };
+      }).filter((c) => c.name);
+      if (list.length) USERS = list;
+    }
+  } catch { /* keep fallback */ }
+  try {
+    const r = await fetch('assets/chat/messages.txt', { cache: 'no-cache' });
+    if (r.ok) {
+      const out: Record<string, string[]> = {};
+      let cur = '';
+      for (const l of lines(await r.text())) {
+        const m = l.match(/^\[(\w+)\]$/);
+        if (m) { cur = m[1]; out[cur] = out[cur] ?? []; continue; }
+        if (cur) out[cur].push(l);
+      }
+      for (const k of Object.keys(out)) if (out[k].length) LINES[k] = out[k];
+    }
+  } catch { /* keep fallback */ }
 }

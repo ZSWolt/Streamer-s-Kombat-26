@@ -11,6 +11,7 @@ import type { App, Screen } from '../app/App';
 import { saveSettings } from '../app/settings';
 import { CharSelect } from './CharSelect';
 import { h, clear } from './dom';
+import { stone } from './stone';
 
 interface RoomView { id: string; name: string; players: ({ id: string; name: string } | null)[]; spectators: string[]; state: string }
 
@@ -33,7 +34,7 @@ export class Lobby implements Screen {
   constructor(private app: App) {
     music.play('menu');
     this.body = h('div', { style: 'width:100%;display:flex;flex-direction:column;align-items:center' });
-    this.el = h('div', { class: 'screen lobby fade-in' }, [h('h1', { class: 'metal' }, ['אונליין']), this.body]);
+    this.el = h('div', { class: 'screen lobby fade-in' }, [h('h1', {}, [stone('אונליין')]), this.body]);
     app.uiRoot.append(this.el);
     this.offs.push(app.input.onUi((e) => {
       if (e === 'back' && !(document.activeElement instanceof HTMLInputElement) && !this.sub) this.exit();
@@ -229,7 +230,7 @@ export class Lobby implements Screen {
     this.el.style.display = 'none';
     this.app.ensureBackdrop(false);
     this.app.canvasMode('dim');
-    const wait = h('div', { class: 'screen' }, [h('h1', { class: 'metal', style: 'font-family:var(--he);font-size:48px' }, ['מתחבר ליריב...'])]);
+    const wait = h('div', { class: 'screen' }, [h('h1', { style: 'font-size:48px' }, [stone('מתחבר ליריב...')])]);
     this.app.uiRoot.append(wait);
     const link = new PeerLink(lobby, ids[1 - side], side === 0);
     this.link = link;
@@ -237,7 +238,7 @@ export class Lobby implements Screen {
     wait.remove();
     this.app.toast(mode === 'p2p' ? 'חיבור ישיר (P2P) ✓' : 'חיבור דרך השרת');
     const cfg = this.cfgFrom(m);
-    const session = new RollbackSession(cfg, side, link, lobby, () => this.app.input.read(0) & ~C.IN_START, this.app.settings.inputDelay);
+    const session = new RollbackSession(cfg, side, link, lobby, () => { const b = this.app.input.read(0) & ~C.IN_START; this.app.input.clearTaps(); return b; }, this.app.settings.inputDelay);
     this.app.canvasMode('clear');
     const labels = ids.map((id) => this.players.find((p) => p.id === id)?.name ?? '') as [string, string];
     const b = new Battle(this.app, this.app.renderer, {
@@ -275,8 +276,8 @@ export class Lobby implements Screen {
   private onMatchEnd(winner: number) {
     lobby.send({ t: 'matchEnd', winner });
     const w = this.battle ? ROSTER[this.battle.driver.state().f[winner === 1 ? 1 : 0].char] : null;
-    const el = h('div', { class: 'overlay results fade-in' }, [
-      h('h1', { class: 'metal' }, [winner === this.mySide ? 'ניצחתם! 🏆' : w ? `${w.he} ניצח` : 'תיקו']),
+    const el = h('div', { class: 'results-overlay fade-in' }, [
+      h('div', { class: 'res-title' }, [stone(winner === this.mySide ? 'ניצחתם!' : w ? `${w.he} ניצח` : 'תיקו')]),
       h('div', { class: 'row', style: 'display:flex;gap:12px' }, [
         h('button', { class: 'btn', onclick: () => { lobby.send({ t: 'rematch' }); } }, ["ריוואנץ'"]),
         h('button', { class: 'btn ghost', onclick: () => { lobby.send({ t: 'leaveRoom' }); } }, ['חזרה ללובי']),

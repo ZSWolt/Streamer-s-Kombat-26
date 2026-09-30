@@ -38,7 +38,7 @@ export class ProceduralFighterView implements FighterVisual {
   private flip = 0;
   private charIdx: number;
   shadow: THREE.Mesh;
-  fx = { tint: new THREE.Color('#000000'), tintAmt: 0, squash: 1, shrink: 1, hidden: false, offsetY: 0, spin: 0 };
+  fx = { tint: new THREE.Color('#000000'), tintAmt: 0, squash: 1, shrink: 1, hidden: false, offsetY: 0, offsetX: 0, spin: 0 };
   private baseScale: number;
   private lastTint = -1;
 
@@ -92,6 +92,23 @@ export class ProceduralFighterView implements FighterVisual {
         out[P.J.spine * 3] += dir * 0.06;
         out[P.J.spine * 3 + 1] += s * 0.06;
         return 'walk';
+      }
+      case St.Run: {
+        out.set(P.GUARD);
+        const ph = t * 15;
+        const sn = Math.sin(ph);
+        out[P.J.spine * 3] += 0.32;
+        out[P.J.head * 3] -= 0.2;
+        out[P.J.thighL * 3] += sn * 0.75 - 0.2;
+        out[P.J.thighR * 3] -= sn * 0.75 + 0.2;
+        out[P.J.shinL * 3] += Math.max(0, -Math.cos(ph)) * 1.2 + 0.2;
+        out[P.J.shinR * 3] += Math.max(0, Math.cos(ph)) * 1.2 + 0.2;
+        out[P.J.armL * 3] = -0.4 - sn * 0.7;
+        out[P.J.armR * 3] = -0.4 + sn * 0.7;
+        out[P.J.foreL * 3] = -1.6;
+        out[P.J.foreR * 3] = -1.6;
+        out[P.EX_HIPY] += Math.abs(Math.cos(ph)) * 0.05 - 0.05;
+        return 'run';
       }
       case St.DashF: {
         const k = Math.min(1, sf / 4);
@@ -223,6 +240,19 @@ export class ProceduralFighterView implements FighterVisual {
     // blink
     this.blinkT -= dt;
     tmp2.set(this.cur);
+    if (this.rig.wheelchair) {
+      const down = this.key === 'lying' || this.key === 'airhit' || this.key === 'getup';
+      for (const j of ['thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR'] as const) {
+        const i = P.J[j] * 3;
+        tmp2[i] = P.SEATED[i]; tmp2[i + 1] = P.SEATED[i + 1]; tmp2[i + 2] = P.SEATED[i + 2];
+      }
+      tmp2[P.J.hips * 3] = 0; tmp2[P.J.hips * 3 + 1] = 0; tmp2[P.J.hips * 3 + 2] = 0;
+      tmp2[P.EX_HIPY] = P.SEATED[P.EX_HIPY];
+      tmp2[P.EX_HIPZ] = 0;
+      if (down) { tmp2[P.J.spine * 3] = 0.75; tmp2[P.J.head * 3] = 0.45; tmp2[P.EX_EYES] = 0.1; }
+      const vx = (f.x - prev.x) / 1000;
+      for (const w of this.rig.wheels) w.rotation.x += (vx / 0.29) * f.facing;
+    }
     if (this.blinkT < 0.12) tmp2[P.EX_EYES] = Math.min(tmp2[P.EX_EYES], Math.abs(this.blinkT - 0.06) / 0.06);
     if (this.blinkT < 0) this.blinkT = 2 + Math.random() * 3;
     applyPose(this.rig, tmp2);
@@ -231,7 +261,7 @@ export class ProceduralFighterView implements FighterVisual {
     const x = (prev.x + (f.x - prev.x) * alpha) / 1000;
     const y = (prev.y + (f.y - prev.y) * alpha) / 1000;
     const fx = this.fx;
-    this.root.position.set(x, y + fx.offsetY, 0);
+    this.root.position.set(x + fx.offsetX, y + fx.offsetY, 0);
     this.root.rotation.y = (f.facing === 1 ? YAW : -YAW) + fx.spin;
     this.root.visible = !fx.hidden;
     this.shadow.visible = !fx.hidden;
@@ -248,7 +278,7 @@ export class ProceduralFighterView implements FighterVisual {
         pm.color.copy(pm.userData.baseColor).lerp(new THREE.Color('#111111'), fx.tint.getHex() === 0 ? fx.tintAmt * 0.9 : 0);
       }
     }
-    this.shadow.position.set(x, 0.012, 0.05);
+    this.shadow.position.set(x + fx.offsetX, 0.012, 0.05);
     const sh = Math.max(0.35, 1 - y * 0.35);
     this.shadow.scale.set(sh, sh, sh);
 

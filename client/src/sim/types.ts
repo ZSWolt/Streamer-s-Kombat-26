@@ -5,7 +5,7 @@ export interface Box { x: number; y: number; w: number; h: number }
 export const St = {
   Idle: 0, WalkF: 1, WalkB: 2, DashF: 3, DashB: 4, Crouch: 5, JumpSquat: 6, Air: 7, Land: 8,
   Attack: 9, BlockStand: 10, BlockCrouch: 11, Hitstun: 12, AirHit: 13, Knockdown: 14, Getup: 15,
-  Throwing: 16, Thrown: 17, Dizzy: 18, Ko: 19, Win: 20, Intro: 21, Taunt: 22, Cinematic: 23, Stunned: 24,
+  Throwing: 16, Thrown: 17, Dizzy: 18, Ko: 19, Win: 20, Intro: 21, Taunt: 22, Cinematic: 23, Stunned: 24, Run: 25,
 } as const;
 export type St = (typeof St)[keyof typeof St];
 
@@ -193,6 +193,7 @@ export interface MatchState {
   roundWinner: -1 | 0 | 1 | 2;
   flawless: boolean;
   banality: boolean;
+  banalityIdx: number;
   superFreeze: number;
   superOwner: number;
   slowmo: number;

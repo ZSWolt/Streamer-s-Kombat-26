@@ -1,24 +1,35 @@
 import * as THREE from 'three';
 import { audio } from '../audio/AudioEngine';
 import { announcer } from '../audio/announcer';
-import { RIVALS } from '../data/rivals';
-import { ROSTER, RANDOM_SLOT } from '../data/roster';
+import { ROSTER, RANDOM_SLOT, fighterIndex } from '../data/roster';
+import { SECRETS } from '../data/secrets';
 import { ProceduralFighterView } from '../render/FighterView';
 import { STAGES } from '../render/stages';
 import { newFighter } from '../sim/util';
 import { St } from '../sim/types';
 import type { App, Screen } from '../app/App';
-import { h } from './dom';
+import { clear, h } from './dom';
 import { logoEl } from './logo';
 import { portraitUrl } from './portraits';
+import { K, motionInput, spInput } from './keys';
+import { stone } from './stone';
 
 export interface SelectResult { chars: [number, number]; skins: [number, number]; stage: number; p2cpu?: boolean }
 export interface NetPick { char: number; skin: number; locked: boolean; stage?: number }
 export interface SelectNet { side: 0 | 1; onLocal: (p: NetPick) => void }
 
 const COLS = 9;
+const SECRET0 = RANDOM_SLOT + 1; // grid indices 18..20 are the secret cards
+const SECRET_COLS = [3, 4, 5];
 
 interface Cursor { idx: number; locked: boolean; skin: number; active: boolean }
+
+/** grid index -> fighter + skin */
+function resolve(idx: number, skin: number): { char: number; skin: number } | null {
+  if (idx < RANDOM_SLOT) return { char: idx, skin };
+  if (idx >= SECRET0) { const s = SECRETS[idx - SECRET0]; return { char: fighterIndex(s.char), skin: s.skin }; }
+  return null;
+}
 
 export class CharSelect implements Screen {
   private el: HTMLElement;
@@ -32,74 +43,71 @@ export class CharSelect implements Screen {
   private off: () => void;
   private stage = 0;
   private stageEl: HTMLElement;
-  private phase: 'pick' | 'stage' | 'done' = 'pick';
+  private titleEl: HTMLElement;
+  private rightLbl: HTMLElement;
+  private rouletteEl: HTMLElement;
+  private phase: 'pick' | 'stage' | 'roulette' | 'done' = 'pick';
   private twoHumans: boolean;
   private t = 0;
-  private lights: THREE.Light[] = [];
 
   constructor(private app: App, private mode: 'arcade' | 'versus' | 'practice' | 'online', private onDone: (r: SelectResult) => void, private onBack: () => void, preset?: number, private net?: SelectNet) {
     this.twoHumans = mode === 'versus';
     app.input.solo = !this.twoHumans;
     this.cur = [
       { idx: preset ?? 0, locked: false, skin: 0, active: true },
-      { idx: preset !== undefined ? (preset + 1) % ROSTER.length : 6, locked: false, skin: 0, active: this.twoHumans || mode === 'online' },
+      { idx: mode === 'arcade' ? RANDOM_SLOT : preset !== undefined ? (preset + 1) % ROSTER.length : 6, locked: false, skin: 0, active: this.twoHumans || mode === 'online' },
     ];
     this.stage = ROSTER[this.cur[0].idx].stage;
 
     const grid = h('div', { class: 'cs-grid' });
-    for (let i = 0; i <= RANDOM_SLOT; i++) {
-      let card: HTMLElement;
-      if (i === RANDOM_SLOT) {
-        card = h('div', { class: 'cs-card random' }, [h('div', { class: 'img' }, ['?']), h('div', { class: 'title' }, ['RANDOM']), h('div', { class: 'name' }, ['אקראי']), h('div', { class: 'tag t1' }, ['1P']), h('div', { class: 'tag t2' }, ['2P'])]);
-      } else {
-        const f = ROSTER[i];
-        card = h('div', { class: 'cs-card' }, [
-          h('div', { class: 'img', style: `background-image:url(${portraitUrl(i, 'card')})` }),
-          h('div', { class: 'plat ' + f.platform }, [f.platform === 'kick' ? 'KICK' : 'YT']),
-          h('div', { class: 'title' }, [f.title]),
-          h('div', { class: 'name' }, [f.he]),
-          h('div', { class: 'tag t1' }, ['1P']), h('div', { class: 'tag t2' }, ['2P']),
-        ]);
-      }
-      card.addEventListener('click', () => { this.cur[0].idx = i; this.confirm(0); });
-      card.addEventListener('mouseenter', () => { if (!this.cur[0].locked) { this.cur[0].idx = i; this.onMove(0); } });
-      this.cards.push(card);
-      grid.append(card);
-    }
+    for (let i = 0; i <= RANDOM_SLOT; i++) grid.append(this.makeCard(i));
+    const secretRow = h('div', { class: 'cs-secrets' });
+    SECRETS.forEach((_, k) => secretRow.append(this.makeCard(SECRET0 + k)));
     for (let p = 0; p < 2; p++) this.info.push(h('div', { class: `cs-info p${p + 1}` }));
     this.stageEl = h('div', { class: 'cs-stage' });
+    this.titleEl = h('h2', {}, [stone('בחר לוחם')]);
+    this.rightLbl = h('div', { class: 'cs-player-lbl p2' });
+    this.rouletteEl = h('div', { class: 'cs-roulette' });
     this.el = h('div', { class: 'screen cselect fade-in' }, [
       logoEl(),
-      h('h2', { class: 'metal' }, ['בחר לוחם']),
+      this.titleEl,
       grid,
+      h('div', { class: 'cs-sep' }, ['?']),
+      secretRow,
       h('div', { class: 'cs-player-lbl p1' }, ['שחקן 1']),
-      h('div', { class: 'cs-player-lbl p2' }, [this.mode === 'practice' ? 'בובה' : this.twoHumans || this.mode === 'online' ? 'שחקן 2' : 'מחשב']),
-      this.info[0], this.info[1], this.stageEl,
-      h('div', { class: 'cs-bottom' }, ['חצים = בחירה · J/Enter = אישור · I = סקין · K/Esc = חזרה']),
+      this.rightLbl,
+      this.info[0], this.info[1], this.stageEl, this.rouletteEl,
+      h('div', { class: 'cs-bottom' }, [`←→↑↓ / D-pad לבחירה • ${K('lp')} / Enter / ✕ לאישור • ${K('hp')} = סקין • עכבר: לחיצה • Esc חזרה`]),
     ]);
     app.uiRoot.append(this.el);
 
-    // 3D side models
+    // 3D side models under spotlights
     const r = app.renderer;
     r.scene.background = new THREE.Color('#050303');
     r.scene.fog = new THREE.Fog('#050303', 12, 30);
     const back = new THREE.Mesh(new THREE.PlaneGeometry(40, 16), new THREE.MeshBasicMaterial({ color: '#1a0a06' }));
     back.position.set(0, 6, -6);
     this.scene.add(back);
-    const floor = new THREE.Mesh(new THREE.CircleGeometry(14, 64), new THREE.MeshStandardMaterial({ color: '#140b08', roughness: 0.35, metalness: 0.3 }));
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(14, 64), new THREE.MeshPhongMaterial({ color: '#1a0d08', specular: '#3a2416', shininess: 36 }));
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     this.scene.add(floor);
-    const hemi = new THREE.HemisphereLight('#ffffff', '#1a0a04', 0.35);
-    this.scene.add(hemi);
+    this.scene.add(new THREE.HemisphereLight('#ffffff', '#1a0a04', 0.35));
+    // soft vertical falloff so the beams read as haze, not flat panels
+    const bc = document.createElement('canvas');
+    bc.width = 4; bc.height = 64;
+    const bg = bc.getContext('2d')!;
+    const grad = bg.createLinearGradient(0, 0, 0, 64);
+    grad.addColorStop(0, '#fff'); grad.addColorStop(0.55, '#6a6a6a'); grad.addColorStop(1, '#101010');
+    bg.fillStyle = grad; bg.fillRect(0, 0, 4, 64);
+    const beamTex = new THREE.CanvasTexture(bc);
     const mkSpot = (x: number, col: string) => {
-      const s = new THREE.SpotLight(col, 90, 18, 0.42, 0.55, 1.4);
+      const s = new THREE.SpotLight(col, 48, 18, 0.42, 0.55, 1.4);
       s.position.set(x, 9, 3);
       s.target.position.set(x, 0, 0.8);
       s.castShadow = true;
       this.scene.add(s, s.target);
-      this.lights.push(s);
-      const beam = new THREE.Mesh(new THREE.ConeGeometry(2.4, 9, 32, 1, true), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.06, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      const beam = new THREE.Mesh(new THREE.ConeGeometry(2.4, 9, 32, 1, true), new THREE.MeshBasicMaterial({ color: col, alphaMap: beamTex, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
       beam.position.set(x, 4.5, 1);
       this.scene.add(beam);
     };
@@ -109,15 +117,45 @@ export class CharSelect implements Screen {
     fill.position.set(0, 3, 8);
     this.scene.add(fill);
     r.scene.add(this.scene);
-    r.camera.position.set(0, 1.4, 8.6);
     r.camera.fov = 32;
     r.camera.updateProjectionMatrix();
-    r.camera.lookAt(0, 1.35, 0);
 
     this.off = app.input.onUi((e, p) => this.onUi(e, p));
     this.onMove(0);
     this.onMove(1);
     this.renderStage();
+    this.renderTitle();
+  }
+
+  private makeCard(i: number): HTMLElement {
+    let card: HTMLElement;
+    const tags = [h('div', { class: 'tag t1' }, ['1P']), h('div', { class: 'tag t2' }, [this.mode === 'arcade' ? 'CPU' : '2P'])];
+    if (i === RANDOM_SLOT) {
+      card = h('div', { class: 'cs-card random' }, [h('div', { class: 'img dice' }, ['🎲']), h('div', { class: 'title' }, ['RANDOM']), h('div', { class: 'name' }, ['אקראי']), ...tags]);
+    } else if (i >= SECRET0) {
+      const s = SECRETS[i - SECRET0];
+      const unlocked = this.app.save.unlocked.includes(s.id);
+      const ci = fighterIndex(s.char);
+      card = h('div', { class: 'cs-card secret' + (unlocked ? ' open' : ''), style: `--glow:${s.glow}` }, [
+        unlocked ? h('div', { class: 'img', style: `background-image:url(${portraitUrl(ci, 'card', s.skin)})` }) : h('div', { class: 'img sil' }, [h('span', { class: 'q' }, ['?']), h('span', { class: 'lock' }, ['🔒'])]),
+        h('div', { class: 'title' }, [unlocked ? s.title : 'SECRET']),
+        h('div', { class: 'name' }, [unlocked ? s.name : '???']),
+        ...tags,
+      ]);
+    } else {
+      const f = ROSTER[i];
+      card = h('div', { class: 'cs-card' }, [
+        h('div', { class: 'img', style: `background-image:url(${portraitUrl(i, 'card')})` }),
+        h('div', { class: 'plat ' + f.platform }, [f.platform === 'kick' ? 'KICK' : 'YT']),
+        h('div', { class: 'title' }, [f.title]),
+        h('div', { class: 'name' }, [f.he]),
+        ...tags,
+      ]);
+    }
+    card.addEventListener('click', () => { const p = this.playerFor(0); if (!this.cur[p].locked) { this.cur[p].idx = i; this.confirm(p); } });
+    card.addEventListener('mouseenter', () => { const p = this.playerFor(0); if (!this.cur[p].locked && this.phase === 'pick') { this.cur[p].idx = i; this.cur[p].skin = 0; this.onMove(p); } });
+    this.cards[i] = card;
+    return card;
   }
 
   private playerFor(p: number): number {
@@ -125,6 +163,13 @@ export class CharSelect implements Screen {
     // in single-human modes, P1 controls the second cursor after locking
     if (!this.twoHumans && this.cur[0].locked) return 1;
     return p;
+  }
+
+  private renderTitle() {
+    const choosingOpp = !this.twoHumans && !this.net && this.cur[0].locked;
+    clear(this.titleEl);
+    this.titleEl.append(stone(choosingOpp ? (this.mode === 'practice' ? 'בחר בובת אימון' : 'בחר יריב') : 'בחר לוחם'));
+    this.rightLbl.textContent = this.mode === 'practice' ? 'בובה' : this.twoHumans || this.mode === 'online' ? 'שחקן 2' : 'CPU';
   }
 
   /** online: apply the opponent's cursor */
@@ -143,39 +188,46 @@ export class CharSelect implements Screen {
   }
 
   private onUi(e: string, rawP: number) {
-    if (this.phase === 'done') return;
+    if (this.phase === 'done' || this.phase === 'roulette') return;
     if (this.phase === 'stage') {
       if (e === 'left' || e === 'right') { this.stage = (this.stage + (e === 'right' ? -1 : 1) + STAGES.length) % STAGES.length; audio.sfx('ui_move'); this.renderStage(); }
       else if (e === 'confirm') this.finish();
-      else if (e === 'back') { this.phase = 'pick'; this.cur[1].locked = false; this.cur[0].locked = this.twoHumans ? this.cur[0].locked : true; audio.sfx('ui_back'); this.renderAll(); this.renderStage(); }
+      else if (e === 'back') { this.phase = 'pick'; this.cur[1].locked = false; audio.sfx('ui_back'); this.renderAll(); this.renderStage(); }
       return;
     }
     const p = this.playerFor(rawP);
     const c = this.cur[p];
-    if (!c.active && p === 1 && this.mode === 'arcade') return;
     if (c.locked) {
-      if (e === 'back') { c.locked = false; audio.sfx('ui_back'); this.renderAll(); this.pushNet(); }
+      if (e === 'back') { c.locked = false; audio.sfx('ui_back'); this.renderAll(); this.renderTitle(); this.pushNet(); }
       if (this.net && this.net.side === 0 && (e === 'left' || e === 'right')) {
         this.stage = (this.stage + (e === 'right' ? -1 : 1) + STAGES.length) % STAGES.length; audio.sfx('ui_move'); this.renderStage(); this.pushNet();
       }
       return;
     }
-    const col = c.idx % COLS;
-    const row = Math.floor(c.idx / COLS);
-    const rows = Math.ceil((RANDOM_SLOT + 1) / COLS);
-    if (e === 'left') c.idx = row * COLS + ((col + COLS - 1) % COLS);
-    else if (e === 'right') c.idx = row * COLS + ((col + 1) % COLS);
-    else if (e === 'up' || e === 'down') c.idx = ((row + 1) % rows) * COLS + col;
-    else if (e === 'confirm') { this.confirm(p); return; }
+    const inSecret = c.idx >= SECRET0;
+    if (e === 'left' || e === 'right') {
+      const d = e === 'right' ? 1 : -1;
+      if (inSecret) c.idx = SECRET0 + ((c.idx - SECRET0 + d + SECRETS.length) % SECRETS.length);
+      else { const row = Math.floor(c.idx / COLS); c.idx = row * COLS + ((c.idx % COLS) + d + COLS) % COLS; }
+    } else if (e === 'up' || e === 'down') {
+      const rows = [0, 1, 2];
+      const row = inSecret ? 2 : Math.floor(c.idx / COLS);
+      const col = inSecret ? SECRET_COLS[c.idx - SECRET0] : c.idx % COLS;
+      const nr = rows[(row + (e === 'down' ? 1 : 2)) % 3];
+      if (nr === 2) {
+        let best = 0;
+        SECRET_COLS.forEach((sc, k) => { if (Math.abs(sc - col) < Math.abs(SECRET_COLS[best] - col)) best = k; });
+        c.idx = SECRET0 + best;
+      } else c.idx = nr * COLS + col;
+    } else if (e === 'confirm') { this.confirm(p); return; }
     else if (e === 'alt') { this.cycleSkin(p); return; }
     else if (e === 'back') {
-      if (p === 1 && !this.twoHumans) { this.cur[0].locked = false; audio.sfx('ui_back'); this.renderAll(); return; }
+      if (p === 1 && !this.twoHumans && !this.net) { this.cur[0].locked = false; audio.sfx('ui_back'); this.renderAll(); this.renderTitle(); return; }
       audio.sfx('ui_back');
       this.onBack();
       return;
-    }
-    else return;
-    c.idx = Math.min(c.idx, RANDOM_SLOT);
+    } else return;
+    c.idx = Math.min(c.idx, SECRET0 + SECRETS.length - 1);
     c.skin = 0;
     audio.sfx('ui_move');
     this.onMove(p);
@@ -185,8 +237,10 @@ export class CharSelect implements Screen {
   private cycleSkin(p: number) {
     const c = this.cur[p];
     if (c.idx >= RANDOM_SLOT) return;
-    const n = ROSTER[c.idx].skins.length;
-    c.skin = (c.skin + 1) % n;
+    const skins = ROSTER[c.idx].skins;
+    const open = skins.map((s, i) => (s.secret ? -1 : i)).filter((i) => i >= 0);
+    if (open.length < 2) return;
+    c.skin = open[(open.indexOf(c.skin) + 1) % open.length];
     audio.sfx('ui_move');
     this.onMove(p);
     this.pushNet();
@@ -194,29 +248,54 @@ export class CharSelect implements Screen {
 
   private confirm(p: number) {
     const c = this.cur[p];
-    if (c.idx === RANDOM_SLOT) { c.idx = Math.floor(Math.random() * ROSTER.length); c.skin = 0; this.onMove(p); }
-    if (!this.app.isUnlocked(c.idx, c.skin)) { audio.sfx('ui_back'); this.app.toast('הסקין הזה עדיין נעול 🔒'); return; }
+    if (c.idx >= SECRET0 && !this.app.save.unlocked.includes(SECRETS[c.idx - SECRET0].id)) {
+      audio.sfx('ui_back');
+      this.app.toast('🔒 דמות סודית — נצחו את היריב הנכון כדי לפתוח');
+      return;
+    }
+    if (c.idx === RANDOM_SLOT) { this.roulette(p); return; }
+    this.lock(p);
+  }
+
+  private roulette(p: number) {
+    this.phase = 'roulette';
+    this.rouletteEl.textContent = 'מגרילים...';
+    this.rouletteEl.classList.add('show');
+    const c = this.cur[p];
+    let steps = 14 + Math.floor(Math.random() * 6);
+    const tick = () => {
+      c.idx = Math.floor(Math.random() * ROSTER.length);
+      c.skin = 0;
+      audio.sfx('ui_move');
+      this.onMove(p);
+      if (--steps > 0) setTimeout(tick, 60 + (20 - steps) * 6);
+      else { this.rouletteEl.classList.remove('show'); this.phase = 'pick'; this.lock(p); }
+    };
+    tick();
+  }
+
+  private lock(p: number) {
+    const c = this.cur[p];
     c.locked = true;
     audio.sfx('select');
-    void announcer.sayNow('name_' + ROSTER[c.idx].id);
-    const v = this.views[p];
-    if (v) v.onHit(1, true);
+    const res = resolve(c.idx, c.skin)!;
+    void announcer.sayNow('name_' + ROSTER[res.char].id);
+    this.views[p]?.onHit(1, true);
     this.renderAll();
     if (this.net) {
-      if (this.net.side === 0) this.stage = ROSTER[c.idx].stage;
+      if (this.net.side === 0) this.stage = ROSTER[res.char].stage;
       this.renderStage();
       this.pushNet();
       return;
     }
-    const need2 = this.mode !== 'arcade';
     if (!this.cur[0].locked) return;
-    if (need2 && !this.cur[1].locked) {
-      if (!this.twoHumans) { this.cur[1].active = true; this.renderAll(); }
+    if (!this.cur[1].locked) {
+      if (!this.twoHumans) { this.cur[1].active = true; this.renderAll(); this.renderTitle(); this.onMove(1); }
       return;
     }
-    if (this.mode === 'arcade') { this.finish(); return; }
+    if (this.mode === 'arcade') { this.stage = ROSTER[resolve(this.cur[1].idx, this.cur[1].skin)!.char].stage; this.finish(); return; }
     this.phase = 'stage';
-    this.stage = ROSTER[this.cur[1].idx].stage;
+    this.stage = ROSTER[resolve(this.cur[1].idx, this.cur[1].skin)!.char].stage;
     this.renderStage();
   }
 
@@ -224,38 +303,39 @@ export class CharSelect implements Screen {
     if (this.phase === 'done') return;
     this.phase = 'done';
     audio.sfx('ui_start');
-    const r: SelectResult = { chars: [this.cur[0].idx, this.cur[1].idx], skins: [this.cur[0].skin, this.cur[1].skin], stage: this.stage, p2cpu: false };
+    const a = resolve(this.cur[0].idx, this.cur[0].skin)!;
+    const b = resolve(this.cur[1].idx, this.cur[1].skin)!;
+    const r: SelectResult = { chars: [a.char, b.char], skins: [a.skin, b.skin], stage: this.stage, p2cpu: false };
     setTimeout(() => this.onDone(r), 450);
   }
 
   private renderStage() {
-    this.stageEl.innerHTML = '';
+    clear(this.stageEl);
     if (this.mode === 'arcade') return;
     const st = STAGES[this.stage];
-    if (this.net) {
-      this.stageEl.append(h('span', {}, [this.net.side === 0 && this.cur[0].locked ? '◀  זירה: ' : 'זירה: ', h('b', {}, [st.he]), this.net.side === 0 && this.cur[0].locked ? '  ▶' : '']));
-      return;
-    }
-    this.stageEl.append(this.phase === 'stage' ? h('span', {}, ['◀  זירה: ', h('b', {}, [st.he]), '  ▶  · Enter להתחלה']) : h('span', {}, ['זירה: ', h('b', {}, [st.he])]));
+    const arrows = this.phase === 'stage' || (this.net && this.net.side === 0 && this.cur[0].locked);
+    this.stageEl.append(h('span', {}, [arrows ? '◀  זירה: ' : 'זירה: ', h('b', {}, [st.he]), arrows ? '  ▶' : '', this.phase === 'stage' ? '  · Enter להתחלה' : '']));
   }
 
   private onMove(p: number) {
     this.renderAll();
     const c = this.cur[p];
-    const idx = c.idx >= RANDOM_SLOT ? -1 : c.idx;
-    const key = idx + ':' + c.skin;
+    const res = resolve(c.idx, c.skin);
+    const locked = c.idx >= SECRET0 && !this.app.save.unlocked.includes(SECRETS[c.idx - SECRET0].id);
+    const key = res && !locked ? res.char + ':' + res.skin : 'none';
     if (this.viewKeys[p] === key) return;
     this.viewKeys[p] = key;
     const old = this.views[p];
     if (old) { this.scene.remove(old.root, old.shadow); old.dispose(); }
     this.views[p] = null;
-    if (idx < 0) return;
-    const v = new ProceduralFighterView(idx, c.skin);
+    if (!res || locked) return;
+    if (p === 1 && !this.cur[1].active) return;
+    const v = new ProceduralFighterView(res.char, res.skin);
     v.root.scale.setScalar(1.55);
     this.scene.add(v.root, v.shadow);
     this.views[p] = v;
     const f = this.fakeF[p];
-    f.char = idx;
+    f.char = res.char;
     f.st = St.Idle;
     f.x = p === 0 ? -3050 : 3050;
     f.facing = p === 0 ? 1 : -1;
@@ -263,26 +343,26 @@ export class CharSelect implements Screen {
 
   private renderAll() {
     this.cards.forEach((card, i) => {
+      if (!card) return;
       card.classList.toggle('p1', this.cur[0].idx === i);
       card.classList.toggle('p2', this.cur[1].active && this.cur[1].idx === i);
     });
     for (let p = 0; p < 2; p++) {
       const c = this.cur[p];
       const el = this.info[p];
-      el.innerHTML = '';
-      if (!c.active && p === 1) { el.append(h('div', { class: 't' }, [this.mode === 'arcade' ? 'CPU' : ''])); continue; }
-      if (c.idx >= RANDOM_SLOT) { el.append(h('div', { class: 't' }, ['RANDOM']), h('div', { class: 'n metal' }, ['?'])); continue; }
-      const f = ROSTER[c.idx];
-      const skin = f.skins[c.skin];
-      const unlocked = this.app.isUnlocked(c.idx, c.skin);
-      let skinTxt = `סקין: ${skin.name}${unlocked ? '' : ' 🔒'}`;
-      if (!unlocked && skin.unlock === 'win3') skinTxt += ` — נצחו את ${ROSTER.find((x) => x.id === RIVALS[f.id])?.he} עם ${f.he}`;
-      if (!unlocked && skin.unlock === 'arcade') skinTxt += ' — סיימו ארקייד';
+      clear(el);
+      if (!c.active && p === 1) continue;
+      if (c.idx === RANDOM_SLOT) { el.append(h('div', { class: 't' }, ['RANDOM']), stone('אקראי', 'n'), h('div', { class: 'rand-note' }, [p === 1 && !this.twoHumans ? 'הגורל יבחר יריב' : 'הגורל יבחר לוחם'])); continue; }
+      if (c.idx >= SECRET0 && !this.app.save.unlocked.includes(SECRETS[c.idx - SECRET0].id)) { el.append(h('div', { class: 't' }, ['SECRET']), stone('???', 'n'), h('div', { class: 'rand-note' }, ['🔒 נעול'])); continue; }
+      const res = resolve(c.idx, c.skin)!;
+      const f = ROSTER[res.char];
+      const secret = c.idx >= SECRET0 ? SECRETS[c.idx - SECRET0] : null;
+      const skins = f.skins.filter((s) => !s.secret);
       el.append(
-        h('div', { class: 't' }, [f.title]),
-        h('div', { class: 'n metal' }, [f.he]),
-        h('div', { class: 'moves' }, f.specials.map((s) => h('div', { class: 'mv' }, [s.name, h('small', {}, [s.input === 'U' ? 'U' : s.input === 'FU' ? '→+U' : '↓+U'])]))),
-        h('div', { class: 'skin' }, [skinTxt, f.skins.length > 1 ? '  (I להחלפה)' : '']),
+        h('div', { class: 't' }, [secret ? secret.title : f.title]),
+        stone(secret ? secret.name : f.he, 'n'),
+        h('div', { class: 'moves' }, f.specials.map((s) => h('div', { class: 'mv' }, [s.name, h('small', {}, [spInput(s.input) + ' · ' + motionInput(s.input)])]))),
+        skins.length > 1 && !secret ? h('div', { class: 'skin' }, [`סקין: ${f.skins[c.skin]?.name ?? ''}  (${K('hp')} להחלפה)`]) : '',
       );
       if (c.locked) el.append(h('div', { class: 'ready' }, ['מוכן!']));
     }
@@ -296,6 +376,8 @@ export class CharSelect implements Screen {
       const f = this.fakeF[p];
       f.stFrame++;
       f.st = this.cur[p].locked ? St.Win : St.Idle;
+      // keep the side models inside the frame on narrow screens
+      f.x = (p === 0 ? -1 : 1) * Math.round(Math.min(3.05, this.sideX()) * 1000);
       v.update(f, f, 1, dt);
       v.root.rotation.y += p === 0 ? 0.95 : -0.95;
       v.root.position.z = 0.6;
@@ -305,11 +387,17 @@ export class CharSelect implements Screen {
     cam.lookAt(0, 1.55, 0);
   }
 
+  private sideX(): number {
+    const cam = this.app.renderer.camera;
+    const halfW = Math.tan((cam.fov * Math.PI) / 360) * 7.6 * cam.aspect;
+    return Math.max(1.6, halfW - 0.85);
+  }
+
   dispose() {
     this.off();
     this.el.remove();
     for (const v of this.views) v?.dispose();
     this.app.renderer.scene.remove(this.scene);
-    this.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.geometry.dispose(); (m.material as THREE.Material).dispose?.(); } });
+    this.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.geometry.dispose(); (m.material as THREE.MeshBasicMaterial).alphaMap?.dispose(); (m.material as THREE.Material).dispose?.(); } });
   }
 }

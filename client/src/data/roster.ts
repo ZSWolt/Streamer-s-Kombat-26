@@ -2,8 +2,8 @@ import type { SpecialDef, SpecialSpec } from '../sim/types';
 
 export type HairStyle =
   | 'wavy' | 'short' | 'curly' | 'bald' | 'curlyShort' | 'messy' | 'long' | 'quiff'
-  | 'sidepart' | 'buzz' | 'longFemale';
-export type Beard = 'none' | 'full' | 'trim' | 'stubble' | 'mustache';
+  | 'sidepart' | 'buzz' | 'longFemale' | 'mop';
+export type Beard = 'none' | 'full' | 'trim' | 'stubble' | 'mustache' | 'scruff';
 
 export interface Look {
   skin: string;
@@ -23,6 +23,7 @@ export interface Look {
   hoodie?: boolean;
   jacket?: string; // suit jacket colour
   stripes?: string;
+  print?: 'palm';
   pants: string;
   shoes: string;
   build: 'slim' | 'normal' | 'heavy' | 'burly';
@@ -48,11 +49,10 @@ export interface Fighter {
   look: Look;
   specials: [SpecialDef, SpecialDef, SpecialDef];
   hype: { name: string; en: string; vfx: string; spec?: Partial<SpecialSpec> };
-  banality: { name: string; en: string; key: string };
   intro: string;
   win: string;
   female?: boolean;
-  skins: { name: string; tint?: string; wheelchair?: boolean; unlock?: string }[];
+  skins: { name: string; tint?: string; wheelchair?: boolean; secret?: string }[];
 }
 
 const sp = (input: SpecialDef['input'], name: string, en: string, anim: string, spec: SpecialSpec): SpecialDef => ({ input, name, en, anim, spec });
@@ -68,11 +68,9 @@ const upper = (o: Partial<SpecialSpec> & { vfx: string; damage: number }): Speci
   kind: 'uppercut', startup: 5, active: 10, recovery: 30, launch: [30, 165], invuln: [1, 9], level: 'mid', hitstun: 30, ...o,
 });
 
-const defaultSkins = (accent: string) => [
-  { name: 'רגיל' },
-  { name: 'זהב', tint: '#d4a531', unlock: 'win3' },
-  { name: 'ניאון', tint: accent, unlock: 'arcade' },
-];
+// Every fighter has its normal look; three fighters also hide a secret version (see data/secrets.ts).
+const defaultSkins = (_accent: string): Fighter['skins'] => [{ name: 'רגיל' }];
+const secretSkin = (name: string, tint: string, secret: string): Fighter['skins'] => [{ name: 'רגיל' }, { name, tint, secret }];
 
 export const ROSTER: Fighter[] = [
   {
@@ -85,9 +83,8 @@ export const ROSTER: Fighter[] = [
       sp('DU', 'בושות!', 'SHAME UPPER', 'uppercut', upper({ vfx: 'shame', damage: 100 })),
     ],
     hype: { name: 'Stay Awesome', en: 'STAY AWESOME', vfx: 'birthday' },
-    banality: { name: 'המסך שלי', en: 'MY SCREEN', key: 'monitor' },
     intro: 'Stay awesome.', win: 'בושות! תודה רבה עודד.',
-    skins: defaultSkins('#53fc18'),
+    skins: secretSkin('זהב', '#d4a531', 'gold-odedsvr'),
   },
   {
     id: 'ronengg', name: 'RONENGG', he: 'רונן', title: 'THE CHAMP', titleHe: 'האלוף', platform: 'kick', channel: 'kick.com/ronengg',
@@ -99,9 +96,8 @@ export const ROSTER: Fighter[] = [
       sp('DU', 'סיקור דרמות', 'DRAMA REPORT', 'throw', shot({ vfx: 'tornado', damage: 35, hits: 2, speed: 55, size: [520, 1100], life: 150 })),
     ],
     hype: { name: '80K', en: '80K RUSH', vfx: 'rocky' },
-    banality: { name: 'BREAKING NEWS', en: 'BREAKING NEWS', key: 'breaking' },
     intro: "It's about how hard you can get hit.", win: 'פרשן הדרמות הכי טוב בעולם.',
-    skins: defaultSkins('#53fc18'),
+    skins: secretSkin('זהב', '#d4a531', 'gold-ronengg'),
   },
   {
     id: 'inde', name: 'INDE', he: 'אינדה', title: 'THE LEGEND', titleHe: 'האגדה', platform: 'youtube', channel: 'youtube.com/@IdanInde',
@@ -113,9 +109,8 @@ export const ROSTER: Fighter[] = [
       sp('DU', 'שלישיית הנובים', 'NOOB TRIO', 'summon', { kind: 'summon', startup: 18, recovery: 30, damage: 90, speed: 62, size: [700, 1500], knockdown: true, life: 140, hitstun: 30, level: 'mid', vfx: 'noobs' }),
     ],
     hype: { name: 'מיליון מנויים', en: '1M SUBS', vfx: 'playbutton' },
-    banality: { name: '10 שנים אחרי', en: '10 YEARS LATER', key: 'kid' },
     intro: 'אינדה גיים! מה קורה?', win: 'תירשמו לערוץ.',
-    skins: defaultSkins('#ff2a2a'),
+    skins: secretSkin('ניאון', '#a347ff', 'neon-inde'),
   },
   {
     id: 'igz', name: 'IGZ', he: 'מיכאל', title: 'THE SENSEI', titleHe: 'הסנסיי', platform: 'kick', channel: 'kick.com/igz',
@@ -127,7 +122,6 @@ export const ROSTER: Fighter[] = [
       sp('DU', 'יום 1 בלי דרמות', 'NO DRAMA PARRY', 'meditate', { kind: 'counter', startup: 2, active: 26, recovery: 16, damage: 80, hitstun: 26, vfx: 'meditate' }),
     ],
     hype: { name: 'גלגל המזל', en: 'WHEEL OF FORTUNE', vfx: 'wheel' },
-    banality: { name: 'לייב 24 שעות', en: '24H STREAM', key: 'sleep24' },
     intro: 'יום 1 בלי דרמות.', win: 'סנסיי.',
     skins: defaultSkins('#53fc18'),
   },
@@ -141,7 +135,6 @@ export const ROSTER: Fighter[] = [
       sp('DU', 'דירוג סטרימרים', 'TIER LIST', 'slam', { kind: 'slam', startup: 20, active: 6, recovery: 22, damage: 100, level: 'overhead', speed: 50, hitstun: 26, knockdown: true, vfx: 'tierlist' }),
     ],
     hype: { name: 'בומרנג קארמה', en: 'KARMA BOOMERANG', vfx: 'karmaboom' },
-    banality: { name: 'אנבאן רקווסט', en: 'UNBAN DENIED', key: 'denied' },
     intro: 'אני בחור טוב.', win: 'What goes around, comes around.',
     skins: defaultSkins('#53fc18'),
   },
@@ -155,22 +148,20 @@ export const ROSTER: Fighter[] = [
       sp('DU', 'קרה קרה', 'KARA KARA STOMP', 'stomp', shot({ vfx: 'shockwave', damage: 70, speed: 62, level: 'low', knockdown: true, size: [520, 300], life: 70 })),
     ],
     hype: { name: '5 כוכבים', en: 'FIVE STARS', vfx: 'police' },
-    banality: { name: 'MISSION PASSED', en: 'MISSION PASSED', key: 'mission' },
     intro: "ג'יטיאיתון יום 3.", win: 'קרה קרה!',
     skins: defaultSkins('#53fc18'),
   },
   {
-    id: 'maorameleh', name: 'MAORAMELEH', he: 'מאור', title: 'THE KING', titleHe: 'המלך', platform: 'kick', channel: 'kick.com/maorameleh',
-    accent: '#53fc18', stage: 4, stats: [2, 5, 4, 3],
-    look: { skin: '#d8ab8c', hair: '#2a1d14', hairStyle: 'long', beard: 'full', headphones: '#2c2c2c', shirt: '#3b2f5c', pants: '#1d1d24', shoes: '#222', build: 'heavy', height: 1.03, crown: true },
+    id: 'maorameleh', name: 'MAOR SNACKS', he: 'מאור סנאקס', title: 'THE MACHINE', titleHe: 'המכונה', platform: 'kick', channel: 'kick.com/maorameleh',
+    accent: '#53fc18', stage: 1, stats: [4, 3, 3, 3],
+    look: { skin: '#f0cdb4', hair: '#3b2616', hairStyle: 'mop', beard: 'scruff', beardColor: '#4a3220', eyes: '#4f8fd0', headphones: '#141519', shirt: '#1b2836', print: 'palm', pants: '#22242a', shoes: '#1a1a1a', build: 'slim', height: 1.03 },
     specials: [
-      sp('U', 'גיטרה אימוט', 'GUITAR EMOTE', 'guitar', rush({ vfx: 'guitar', damage: 110, speed: 38, active: 10, knockdown: true, startup: 14 })),
-      sp('FU', 'פיצול אישיות', 'SPLIT PERSONALITY', 'clones', rush({ vfx: 'clones', damage: 40, hits: 3, speed: 82, active: 18 })),
-      sp('DU', 'סנאקס', 'SNACKS BOMB', 'lob', shot({ vfx: 'snacks', damage: 90, speed: 46, vy: 95, gravity: 6, knockdown: true, size: [380, 380] })),
+      sp('U', 'גיטרה אימוט', 'GUITAR EMOTE', 'guitar', rush({ vfx: 'guitar', damage: 100, speed: 38, active: 10, knockdown: true, startup: 13 })),
+      sp('FU', 'פיצול אישיות', 'SPLIT PERSONALITY', 'clones', rush({ vfx: 'clones', damage: 40, hits: 3, speed: 86, active: 18 })),
+      sp('DU', 'סנאקס', 'SNACKS BOMB', 'lob', shot({ vfx: 'snacks', damage: 85, speed: 48, vy: 95, gravity: 6, knockdown: true, size: [380, 380] })),
     ],
     hype: { name: 'מאור הנחמד', en: 'MAOR THE NICE', vfx: 'nice', spec: { heal: 120 } },
-    banality: { name: 'הכתר', en: 'THE CROWN', key: 'crown' },
-    intro: 'המלך הגיע.', win: 'סנאקס.',
+    intro: 'מאור הנחמד, פרק 8.', win: 'המכונה סנאקס.',
     skins: defaultSkins('#53fc18'),
   },
   {
@@ -183,7 +174,6 @@ export const ROSTER: Fighter[] = [
       sp('DU', 'Next!', 'NEXT!', 'swap', { kind: 'swap', startup: 16, recovery: 10, damage: 0, vfx: 'swap' }),
     ],
     hype: { name: 'עידן חדש', en: 'A NEW ERA', vfx: 'devil' },
-    banality: { name: 'THE STREAM IS ENDING', en: 'THE STREAM IS ENDING', key: 'ending' },
     intro: 'אני הוא המנטליסט.', win: 'אין על קיק.',
     skins: defaultSkins('#a347ff'),
   },
@@ -197,7 +187,6 @@ export const ROSTER: Fighter[] = [
       sp('DU', 'EARTHQUACKERR', 'EARTHQUACKERR', 'stomp', { kind: 'trap', startup: 18, recovery: 26, damage: 80, level: 'low', knockdown: true, range: 0, size: [1900, 400], life: 14, vfx: 'quake' }),
     ],
     hype: { name: 'הקלף הכי נדיר בעולם', en: 'RAREST CARD', vfx: 'legendary' },
-    banality: { name: 'GRADED 10', en: 'GRADED 10', key: 'graded' },
     intro: 'יאווווו.', win: 'ניקי מוציא זהב!',
     skins: defaultSkins('#53fc18'),
   },
@@ -211,7 +200,6 @@ export const ROSTER: Fighter[] = [
       sp('DU', 'גב לקיר', 'BACK TO THE WALL', 'grab', { kind: 'grab', startup: 8, active: 4, recovery: 32, damage: 150, range: 880, knockdown: true, vfx: 'wallslam' }),
     ],
     hype: { name: 'דלי לבה', en: 'LAVA BUCKET', vfx: 'lava' },
-    banality: { name: 'הולך אל מותו', en: 'INTO THE LAVA', key: 'lavapit' },
     intro: 'חוזר לכושר.', win: 'גב לקיר.',
     skins: defaultSkins('#8c3bff'),
   },
@@ -225,7 +213,6 @@ export const ROSTER: Fighter[] = [
       sp('DU', 'מחשב חדש', 'NEW PC', 'point', { kind: 'drop', startup: 20, recovery: 24, damage: 100, knockdown: true, size: [520, 700], vfx: 'pctower', hitstun: 30 }),
     ],
     hype: { name: 'Speedrun', en: 'SPEEDRUN', vfx: 'speedrun' },
-    banality: { name: 'Unboxing', en: 'UNBOXING', key: 'unboxing' },
     intro: 'לייב של הקיקרים.', win: 'קוקו מאן.',
     skins: defaultSkins('#53fc18'),
   },
@@ -239,7 +226,6 @@ export const ROSTER: Fighter[] = [
       sp('DU', 'מבשלים עם שניר', 'COOKING WITH SNIR', 'lob', shot({ vfx: 'cake', damage: 60, speed: 55, vy: 72, gravity: 5, stun: 35, size: [380, 320] })),
     ],
     hype: { name: 'The Boiz', en: 'THE BOIZ', vfx: 'boiz' },
-    banality: { name: 'שורפים את הבית של שניר', en: 'BURNING SNIR’S HOUSE', key: 'oven' },
     intro: 'אוגה בוגהההה!', win: 'חזרנו למקורות!',
     skins: defaultSkins('#53fc18'),
   },
@@ -253,9 +239,8 @@ export const ROSTER: Fighter[] = [
       sp('DU', 'זיוואיייי!', 'ZVAIII!', 'scream', shot({ vfx: 'scream', damage: 60, speed: 48, life: 34, stun: 32, size: [700, 1300] })),
     ],
     hype: { name: 'Carry', en: 'CARRY', vfx: 'pickaxe' },
-    banality: { name: 'UWU', en: 'UWU', key: 'uwu' },
     intro: 'אני הסטרימר הכי טוב בארץ.', win: 'זיוואייייי!',
-    skins: [{ name: 'רגיל' }, { name: 'כיסא גלגלים', wheelchair: true }, { name: 'זהב', tint: '#d4a531', unlock: 'win3' }],
+    skins: [{ name: 'רגיל' }, { name: 'כיסא גלגלים', wheelchair: true }],
   },
   {
     id: 'nave', name: 'NAVE', he: 'נווה', title: 'THE CHALLENGER', titleHe: 'המאתגר', platform: 'youtube', channel: 'youtube.com/@thesaltiz',
@@ -267,7 +252,6 @@ export const ROSTER: Fighter[] = [
       sp('DU', '10,000 ₪', '10,000 SHEKEL', 'point', { kind: 'trap', startup: 16, recovery: 22, damage: 60, stun: 45, range: 1500, size: [700, 500], life: 240, vfx: 'money' }),
     ],
     hype: { name: 'מיליון שוקולדים', en: 'A MILLION CHOCOLATES', vfx: 'truck' },
-    banality: { name: 'חפש את המטמון', en: 'TREASURE HUNT', key: 'treasure' },
     intro: 'האחרון שנשאר זוכה ב-10,000 שקל!', win: 'תירשמו לסולטיז!',
     skins: defaultSkins('#ff2a2a'),
   },
@@ -281,7 +265,6 @@ export const ROSTER: Fighter[] = [
       sp('DU', 'מחבואים', 'HIDE & SEEK', 'teleport', { kind: 'teleport', startup: 18, recovery: 10, damage: 0, behind: true, vfx: 'hide' }),
     ],
     hype: { name: 'הבכורה', en: 'THE PREMIERE', vfx: 'redcarpet' },
-    banality: { name: 'THE END', en: 'THE END', key: 'credits' },
     intro: 'סולטיז הסרט, עכשיו בקולנוע!', win: 'גבירותיי ורבותיי!',
     skins: defaultSkins('#ff2a2a'),
   },
@@ -295,7 +278,6 @@ export const ROSTER: Fighter[] = [
       sp('DU', 'בית חולים נטוש', 'HAUNTED HOSPITAL', 'point', shot({ vfx: 'ghost', damage: 30, speed: 44, stun: 70, size: [520, 900], life: 140 })),
     ],
     hype: { name: 'סופת שלגים', en: 'BLIZZARD', vfx: 'blizzard' },
-    banality: { name: 'קפוא', en: 'FROZEN', key: 'frozen' },
     intro: 'שרדנו את הקוטב הצפוני.', win: 'עוד 100 שעות? קטן עליי.',
     skins: defaultSkins('#ff2a2a'),
   },
@@ -309,7 +291,6 @@ export const ROSTER: Fighter[] = [
       sp('DU', 'תענה על השאלה', 'ANSWER THE QUESTION', 'point', { kind: 'drop', startup: 22, recovery: 22, damage: 110, chance: 65, knockdown: true, size: [600, 600], vfx: 'quiz', hitstun: 30 }),
     ],
     hype: { name: '10,000 ₪', en: 'PINK MONEY RAIN', vfx: 'pinkmoney' },
-    banality: { name: 'תיפול לבריכה', en: 'FALL IN THE POOL', key: 'pool' },
     intro: 'תענה על השאלה או שתיפול!', win: 'המלכה של סולטיז.',
     skins: defaultSkins('#ff2a2a'),
   },

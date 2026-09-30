@@ -1,12 +1,13 @@
 import { ROSTER } from '../data/roster';
+import { FLAVOR } from '../data/flavor';
 import * as C from './constants';
 import { MV, movesFor, totalFrames } from './moves';
 import { spawnSpecial, specialFrame, updateProjectiles } from './specials';
 import type { FighterState, MatchConfig, MatchState, MoveDef } from './types';
 import { St } from './types';
 import {
-  backBit, clamp, countPresses, emit, fwdBit, grounded, hurtbox, isCrouching, newFighter, overlap,
-  recentPress, setState, sign, swapLR, worldBox,
+  backBit, clamp, countPresses, emit, fwdBit, grounded, hurtbox, isCrouching, motion, newFighter, overlap,
+  recentPress, rngNext, setState, sign, swapLR, worldBox,
 } from './util';
 
 export function createMatch(cfg: MatchConfig): MatchState {
@@ -16,7 +17,7 @@ export function createMatch(cfg: MatchConfig): MatchState {
     timer: cfg.roundTime > 0 ? cfg.roundTime * C.FPS : 0,
     f: [newFighter(cfg.chars[0], cfg.skins[0], 0), newFighter(cfg.chars[1], cfg.skins[1], 1)],
     proj: [], nextProjId: 1, rng: (cfg.seed | 0) || 0x1234567,
-    winner: -1, roundWinner: -1, flawless: false, banality: false,
+    winner: -1, roundWinner: -1, flawless: false, banality: false, banalityIdx: -1,
     superFreeze: 0, superOwner: -1, slowmo: 0, events: [],
   };
   if (cfg.charIntro) { m.f[0].st = St.Intro; m.f[1].st = St.Intro; }
@@ -177,7 +178,7 @@ function practiceRefill(m: MatchState) {
 
 export function actionable(f: FighterState): boolean {
   switch (f.st) {
-    case St.Idle: case St.WalkF: case St.WalkB: case St.Crouch: return true;
+    case St.Idle: case St.WalkF: case St.WalkB: case St.Crouch: case St.Run: return true;
     case St.BlockStand: case St.BlockCrouch: return f.blockstun <= 0;
     case St.DashF: case St.DashB: return f.stFrame >= 7;
     case St.Land: return f.stFrame >= C.LAND_RECOVERY;
@@ -195,6 +196,10 @@ function pickMove(m: MatchState, f: FighterState, btn: number, inp: number, air:
     if (btn & C.IN_LP) return MV.jLP;
     return -1;
   }
+  // classic arcade motions: ↓↘→+LP, ↓↙←+HP, →↓↘+LK
+  if (btn & C.IN_LP && motion(f, [2, 3, 6])) return MV.SP0;
+  if (btn & C.IN_HP && motion(f, [2, 1, 4])) return MV.SP1;
+  if (btn & C.IN_LK && motion(f, [6, 2, 3])) return MV.SP2;
   const throwCombo = ((btn & C.IN_LP) && (inp & C.IN_LK || recentPress(f, C.IN_LK, 3))) ||
     ((btn & C.IN_LK) && (inp & C.IN_LP || recentPress(f, C.IN_LP, 3)));
   if (throwCombo) return MV.THROW;
@@ -206,7 +211,7 @@ function pickMove(m: MatchState, f: FighterState, btn: number, inp: number, air:
   }
   if (btn & C.IN_HK) return down ? MV.cHK : MV.HK;
   if (btn & C.IN_HP) return down ? MV.cHP : fwd ? MV.fHP : MV.HP;
-  if (btn & C.IN_LK) return down ? MV.cLK : MV.LK;
+  if (btn & C.IN_LK) return down ? MV.cLK : fwd ? MV.fLK : MV.LK;
   if (btn & C.IN_LP) return down ? MV.cLP : MV.LP;
   return -1;
 }
@@ -252,10 +257,11 @@ function control(m: MatchState, p: number, rawInput: number) {
   if (f.throwTech > 0) f.throwTech--;
   if (f.statusFrames > 0 && --f.statusFrames === 0) f.status = '';
 
-  // Banality input (↓↓+U) during finish
-  if (m.phase === 'finish' && p === m.winner && btn & C.IN_SP && countPresses(f, C.IN_DOWN, 30) >= 2 &&
-    Math.abs(f.x - o.x) <= C.BANALITY_RANGE && (actionable(f) || f.st === St.Attack) && grounded(f)) {
-    startBanality(m, p);
+  // FINISH: punch = banality 1, kick = banality 2, special = surprise
+  if (m.phase === 'finish' && p === m.winner && btn && m.phaseFrame > 30 && grounded(f) &&
+    (actionable(f) || f.st === St.Attack || f.st === St.Win)) {
+    const idx = btn & (C.IN_LP | C.IN_HP) ? 0 : btn & (C.IN_LK | C.IN_HK) ? 1 : (rngNext(m) & 1);
+    startBanality(m, p, idx);
     return;
   }
 
@@ -316,7 +322,7 @@ function control(m: MatchState, p: number, rawInput: number) {
     return;
   }
   if (inp & C.IN_DOWN) { setState(f, St.Crouch); return; }
-  if (inp & fb) { setState(f, St.WalkF); return; }
+  if (inp & fb) { if (f.st !== St.Run) setState(f, St.WalkF); return; }
   if (inp & bb) { setState(f, St.WalkB); return; }
   setState(f, St.Idle);
 }
@@ -344,7 +350,11 @@ function advance(m: MatchState, p: number) {
     case St.WalkB: f.vx = -((C.WALK_B * speedMul(f)) / 200 | 0) * f.facing; break;
     case St.DashF:
       f.vx = f.stFrame < C.DASH_F_FRAMES - 3 ? ((C.DASH_F_SPEED * speedMul(f)) / 200 | 0) * f.facing : (f.vx / 2) | 0;
-      if (f.stFrame >= C.DASH_F_FRAMES) setState(f, St.Idle);
+      if (f.stFrame >= C.DASH_F_FRAMES) setState(f, f.history[f.history.length - 1] & fwdBit(f) ? St.Run : St.Idle);
+      break;
+    case St.Run:
+      f.vx = ((C.RUN_SPEED * speedMul(f)) / 200 | 0) * f.facing;
+      if (!(f.history[f.history.length - 1] & fwdBit(f))) setState(f, St.Idle);
       break;
     case St.DashB:
       f.vx = f.stFrame < C.DASH_B_FRAMES - 4 ? -C.DASH_B_SPEED * f.facing : (f.vx / 2) | 0;
@@ -811,19 +821,20 @@ function endFinish(m: MatchState, banality: boolean) {
   emit(m, { type: 'ko', p: 1 - w, a: 1, b: m.flawless ? 1 : 0 });
 }
 
-function startBanality(m: MatchState, p: number) {
+function startBanality(m: MatchState, p: number, idx: number) {
   const f = m.f[p];
   const o = m.f[1 - p];
   m.phase = 'banality';
   m.phaseFrame = 0;
-  const key = ROSTER[f.char].banality.key;
+  m.banalityIdx = idx;
+  const key = FLAVOR[ROSTER[f.char].id]?.banalities[idx]?.key ?? 'generic';
   setState(f, St.Cinematic); setState(o, St.Cinematic);
   f.cinematicKind = key; o.cinematicKind = key;
   f.vx = 0; o.vx = 0; f.move = -1;
   o.x = f.x + f.facing * 900;
   o.facing = (-f.facing) as 1 | -1;
   m.proj = [];
-  emit(m, { type: 'banality', p, s: key });
+  emit(m, { type: 'banality', p, s: key, a: idx });
 }
 
 function stepBanality(m: MatchState) {
@@ -835,7 +846,7 @@ function stepBanality(m: MatchState) {
     m.banality = true;
     m.phase = 'roundEnd';
     m.phaseFrame = 0;
-    emit(m, { type: 'banalityEnd', p: w, s: ROSTER[m.f[w].char].banality.en });
+    emit(m, { type: 'banalityEnd', p: w, a: m.banalityIdx, s: FLAVOR[ROSTER[m.f[w].char].id]?.banalities[m.banalityIdx]?.en ?? '' });
   }
 }
 
@@ -882,6 +893,14 @@ function stepAfterKo(m: MatchState) {
 function stepRoundEnd(m: MatchState) {
   for (const f of m.f) { f.stFrame++; physics(m, f, true); }
   if (m.phaseFrame === 1 && m.roundWinner === -1 && m.winner >= 0) m.roundWinner = m.winner;
+  if (m.cfg.practice && m.phaseFrame >= 60) {
+    // practice never ends: reset and keep training
+    m.winner = -1; m.banality = false; m.banalityIdx = -1;
+    m.f[0].roundWins = 0; m.f[1].roundWins = 0;
+    beginRound(m);
+    m.phase = 'fight';
+    return;
+  }
   if (m.phaseFrame >= C.ROUND_END_FRAMES) {
     const w0 = m.f[0].roundWins >= m.cfg.roundsToWin;
     const w1 = m.f[1].roundWins >= m.cfg.roundsToWin;

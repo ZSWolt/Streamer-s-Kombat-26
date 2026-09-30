@@ -1,5 +1,5 @@
 import { ROSTER } from '../data/roster';
-import { INPUT_HISTORY, IN_LEFT, IN_RIGHT, MAX_HP } from './constants';
+import { INPUT_HISTORY, IN_DOWN, IN_LEFT, IN_RIGHT, IN_UP, MAX_HP } from './constants';
 import type { Box, FighterState, MatchState, SimEvent } from './types';
 import { St } from './types';
 
@@ -75,6 +75,23 @@ export function fwdBit(f: FighterState): number {
 
 export function backBit(f: FighterState): number {
   return f.facing === 1 ? IN_LEFT : IN_RIGHT;
+}
+
+/** numpad notation relative to facing: 2 = down, 3 = down-forward, 6 = forward, 4 = back, 8 = up ... */
+export function dirNum(f: FighterState, input: number): number {
+  const h = input & fwdBit(f) ? 1 : input & backBit(f) ? -1 : 0;
+  const v = input & IN_UP ? 1 : input & IN_DOWN ? -1 : 0;
+  return 5 + h + v * 3;
+}
+
+/** true if the direction sequence (numpad notation) appears in order within the last `window` frames */
+export function motion(f: FighterState, seq: number[], window = 20): boolean {
+  const h = f.history;
+  let k = seq.length - 1;
+  for (let i = h.length - 1; i >= Math.max(0, h.length - window) && k >= 0; i--) {
+    if (dirNum(f, h[i]) === seq[k]) k--;
+  }
+  return k < 0;
 }
 
 export function swapLR(input: number): number {

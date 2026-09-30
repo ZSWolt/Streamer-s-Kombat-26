@@ -7,6 +7,25 @@ export function emojiTex(e: string, size = 256): THREE.Texture {
   const key = e + size;
   let t = emojiCache.get(key);
   if (t) return t;
+  if (e === '#vending') {
+    // a snack vending machine (there is no emoji for it)
+    t = canvasTex(size, size, (g, w, h) => {
+      const x0 = w * 0.2, y0 = h * 0.04, bw = w * 0.6, bh = h * 0.92;
+      g.fillStyle = '#c8101a'; g.fillRect(x0, y0, bw, bh);
+      g.fillStyle = '#7a0a10'; g.fillRect(x0 + bw * 0.78, y0 + bh * 0.1, bw * 0.16, bh * 0.5);
+      g.fillStyle = '#1b2230'; g.fillRect(x0 + bw * 0.06, y0 + bh * 0.1, bw * 0.66, bh * 0.62);
+      const cols = ['#ffd84d', '#53fc18', '#ff7a2f', '#4dabf7', '#f783ac'];
+      for (let r = 0; r < 4; r++) for (let c = 0; c < 3; c++) {
+        g.fillStyle = cols[(r * 3 + c) % cols.length];
+        g.fillRect(x0 + bw * (0.1 + c * 0.2), y0 + bh * (0.13 + r * 0.14), bw * 0.14, bh * 0.09);
+      }
+      g.fillStyle = '#0b0b0e'; g.fillRect(x0 + bw * 0.1, y0 + bh * 0.8, bw * 0.55, bh * 0.1);
+      g.fillStyle = '#fff'; g.font = `900 ${Math.floor(size * 0.085)}px "Bebas Neue", Impact`; g.textAlign = 'center';
+      g.fillText('SNACKS', x0 + bw * 0.5, y0 + bh * 0.08);
+    });
+    emojiCache.set(key, t);
+    return t;
+  }
   t = canvasTex(size, size, (g, w, h) => {
     g.textAlign = 'center';
     g.textBaseline = 'middle';

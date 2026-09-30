@@ -13,6 +13,7 @@ import type { App, Screen } from '../app/App';
 import { h } from '../ui/dom';
 import { logoEl } from '../ui/logo';
 import { portraitUrl } from '../ui/portraits';
+import { stone } from '../ui/stone';
 
 const ORDER = ['odedsvr', 'ronengg', 'inde', 'nave', 'shoval', 'paz', 'ori', 'igz', 'liorslife', 'psyqr', 'maorameleh', 'masterohad', 'pedrofederer', 'k0nkamc', 'devidtur', 'sasivetheboiz', 'shotist'];
 const SHOT = 2.35;
@@ -44,7 +45,9 @@ export class IntroCinematic implements Screen {
     r.scene.add(this.group);
     this.group.add(this.vfx.group);
     this.cam = new CameraDirector(r.camera);
-    this.ui = h('div', { class: 'screen letterbox', style: 'pointer-events:none' }, [h('div', { class: 'intro-skip' }, ['לחצו על מקש כדי לדלג'])]);
+    const skip = h('div', { class: 'intro-skip' }, ['דלג ▸']);
+    skip.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.finish(); });
+    this.ui = h('div', { class: 'screen letterbox', style: 'pointer-events:none' }, [skip]);
     app.uiRoot.append(this.ui);
     music.play('title', 0.3);
     this.off = app.input.onUi((e) => { if (e === 'any' || e === 'confirm' || e === 'start') this.finish(); });
@@ -117,7 +120,7 @@ export class IntroCinematic implements Screen {
   private showCard() {
     const f = ROSTER[fighterIndex(ORDER[this.shot])];
     this.card = h('div', { class: 'intro-card' }, [
-      h('div', { class: 'n metal' }, [f.he]),
+      stone(f.he, 'n'),
       h('div', { class: 't' }, [f.title]),
       h('div', { class: 'p ' + f.platform }, [f.platform === 'kick' ? 'KICK.COM/' + f.name : 'YOUTUBE']),
     ]);

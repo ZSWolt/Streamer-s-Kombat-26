@@ -25,13 +25,14 @@ export interface Settings {
   inputDelay: number; // online
   p1Keys: KeyMap;
   p2Keys: KeyMap;
+  keysVersion: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   difficulty: 1, rounds: 2, roundTime: 99, music: 0.7, sfx: 0.8, voices: 1, announcerLang: 'he', battleIntro: true,
   hints: true, quality: 'high', resScale: 1, fullscreen: false, showFps: false, shake: 1, effects: 1, streamHud: true,
   chatSpeed: 1, inputDisplay: false, nickname: '', inputDelay: 2,
-  p1Keys: structuredClone(DEFAULT_P1), p2Keys: structuredClone(DEFAULT_P2),
+  p1Keys: structuredClone(DEFAULT_P1), p2Keys: structuredClone(DEFAULT_P2), keysVersion: 2,
 };
 
 const KEY = 'sk26.settings';
@@ -48,7 +49,14 @@ export function loadSettings(): Settings {
   const raw = safeGet(KEY);
   if (!raw) return structuredClone(DEFAULT_SETTINGS);
   try {
-    return { ...structuredClone(DEFAULT_SETTINGS), ...JSON.parse(raw) };
+    const saved = JSON.parse(raw) as Partial<Settings>;
+    const s: Settings = { ...structuredClone(DEFAULT_SETTINGS), ...saved };
+    if ((saved.keysVersion ?? 1) < 2) {
+      // new comfortable default layout (L = special, Space = block)
+      s.p1Keys = structuredClone(DEFAULT_P1);
+      s.keysVersion = 2;
+    }
+    return s;
   } catch {
     return structuredClone(DEFAULT_SETTINGS);
   }

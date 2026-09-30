@@ -6,7 +6,7 @@ export const MV = {
   cLP: 4, cHP: 5, cLK: 6, cHK: 7,
   jLP: 8, jHP: 9, jLK: 10, jHK: 11,
   fHP: 12, THROW: 13,
-  SP0: 14, SP1: 15, SP2: 16, HYPE: 17,
+  SP0: 14, SP1: 15, SP2: 16, HYPE: 17, fLK: 18,
 } as const;
 
 const b = (x: number, y: number, w: number, h: number): Box => ({ x, y, w, h });
@@ -73,6 +73,12 @@ export function movesFor(charIdx: number): MoveDef[] {
     id: MV.HYPE, key: 'HYPE', anim: 'hype', startup: 8, active: 12, recovery: 40, damage: 280, level: 'mid',
     hitbox: b(0, 0, 3400, 2200), hitstun: 60, blockstun: 30, pushback: 120, hitstop: 14, cancel: 'none', chainRank: 9,
     invuln: [0, 22], hype: true, knockdown: true,
+  });
+  // spartan kick (→ + light kick): big push, great for making space
+  list.push({
+    id: MV.fLK, key: 'fLK', anim: 'kickball', startup: 12, active: 4, recovery: 18, damage: 70, level: 'mid',
+    hitbox: b(100, 650, 700 + (reach - 3) * 60, 520), hitstun: 20, blockstun: 14, pushback: 125, hitstop: 11, cancel: 'special', chainRank: 3,
+    vx: [[4, 28], [11, 0]],
   });
   cache.set(charIdx, list);
   return list;

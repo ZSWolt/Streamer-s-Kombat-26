@@ -6,6 +6,13 @@ import { EX_EYES, EX_HIPY, EX_HIPZ, EX_MOUTH, J, JOINTS, type Pose } from './pos
 
 const HEAD_R = 0.3;
 
+/** textures multiply the colour, so brighten the base a little to keep the intended shade */
+function lift(color: string, k: number) {
+  const c = new THREE.Color(color);
+  c.r = Math.min(1, c.r * k + 0.02); c.g = Math.min(1, c.g * k + 0.02); c.b = Math.min(1, c.b * k + 0.02);
+  return '#' + c.getHexString();
+}
+
 function hash(n: number) {
   const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
   return x - Math.floor(x);
@@ -62,6 +69,73 @@ function stripeTexture(a: string, b: string) {
   return t;
 }
 
+function palmTexture(base: string) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d')!;
+  g.fillStyle = base;
+  g.fillRect(0, 0, 256, 256);
+  let sd = 5;
+  const r = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
+  for (let k = 0; k < 9; k++) {
+    const x = r() * 256, y = r() * 256, rot = r() * Math.PI * 2, len = 36 + r() * 30;
+    g.save();
+    g.translate(x, y);
+    g.rotate(rot);
+    g.strokeStyle = 'rgba(240,240,232,0.9)';
+    g.lineWidth = 2;
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(len, 0); g.stroke();
+    g.fillStyle = 'rgba(240,240,232,0.85)';
+    for (let i = 1; i <= 7; i++) {
+      const px = (len / 8) * i;
+      for (const sgn of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(px, 0);
+        g.quadraticCurveTo(px + 6, sgn * 10, px + 10, sgn * (16 - i));
+        g.quadraticCurveTo(px + 3, sgn * 6, px, 0);
+        g.fill();
+      }
+    }
+    g.restore();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(1.5, 1.5);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+let hairTex: THREE.CanvasTexture | null = null;
+let beardTex: THREE.CanvasTexture | null = null;
+/** fibrous strand noise so hair/beards read as hair rather than solid plastic */
+function strandTexture(kind: 'hair' | 'beard') {
+  if (kind === 'hair' && hairTex) return hairTex;
+  if (kind === 'beard' && beardTex) return beardTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#ececec';
+  g.fillRect(0, 0, 256, 256);
+  let sd = kind === 'hair' ? 11 : 23;
+  const r = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
+  const n = kind === 'hair' ? 1400 : 2600;
+  for (let i = 0; i < n; i++) {
+    const x = r() * 256, y = r() * 256;
+    const l = kind === 'hair' ? 10 + r() * 26 : 3 + r() * 6;
+    const a = kind === 'hair' ? Math.PI / 2 + (r() - 0.5) * 0.5 : r() * Math.PI;
+    const v = Math.floor(150 + r() * 105);
+    g.strokeStyle = `rgba(${v},${v},${v},0.6)`;
+    g.lineWidth = kind === 'hair' ? 1 + r() * 1.2 : 1;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(kind === 'hair' ? 2 : 3, kind === 'hair' ? 2 : 3);
+  t.colorSpace = THREE.SRGBColorSpace;
+  if (kind === 'hair') hairTex = t; else beardTex = t;
+  return t;
+}
+
 export interface RigParts {
   root: THREE.Group; // world placement
   body: THREE.Group; // facing/mirroring
@@ -76,6 +150,9 @@ export interface RigParts {
   handR: THREE.Object3D;
   handL: THREE.Object3D;
   height: number;
+  wheelchair: boolean;
+  wheels: THREE.Object3D[];
+  chair: THREE.Group | null;
 }
 
 export function buildRig(f: Fighter, skinIdx = 0): RigParts {
@@ -98,9 +175,11 @@ export function buildRig(f: Fighter, skinIdx = 0): RigParts {
   const hm = L.height;
 
   const skinM = M(L.skin, { roughness: 0.48, clearcoat: 0.18, sheen: 0.4, sheenColor: new THREE.Color('#ffb59a'), sheenRoughness: 0.6 });
-  const hairM = M(L.hair, { roughness: 0.75 });
-  const beardM = M(L.beardColor ?? L.hair, { roughness: 0.85 });
-  const shirtM = L.stripes ? M('#ffffff', { map: stripeTexture(L.shirt, L.stripes), roughness: 0.85 }) : M(L.shirt, { roughness: 0.85 });
+  const hairM = M(lift(L.hair, 1.12), { roughness: 0.72, map: strandTexture('hair'), bumpMap: strandTexture('hair'), bumpScale: 1.2 });
+  const beardM = M(lift(L.beardColor ?? L.hair, 1.18), { roughness: 0.9, map: strandTexture('beard'), bumpMap: strandTexture('beard'), bumpScale: 1.6 });
+  const shirtM = L.stripes ? M('#ffffff', { map: stripeTexture(L.shirt, L.stripes), roughness: 0.85 })
+    : L.print === 'palm' ? M('#ffffff', { map: palmTexture(L.shirt), roughness: 0.85 })
+    : M(L.shirt, { roughness: 0.85 });
   const sleeveM = L.jacket ? M(L.jacket, { roughness: 0.7 }) : shirtM;
   const torsoM = L.jacket ? sleeveM : shirtM;
   const pantsM = M(L.pants, { roughness: 0.8 });
@@ -278,7 +357,7 @@ export function buildRig(f: Fighter, skinIdx = 0): RigParts {
   // mouth
   const mouthSmile = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.013, 8, 20, Math.PI), M(L.female ? '#b8325a' : '#6b2a22', { roughness: 0.4 }));
   mouthSmile.rotation.z = Math.PI + 0.12;
-  const bearded = L.beard === 'full' || L.beard === 'trim';
+  const bearded = L.beard === 'full' || L.beard === 'trim' || L.beard === 'scruff';
   mouthSmile.position.set(0.01, -0.115, HEAD_R * (bearded ? 1.02 : 0.92));
   mouthSmile.scale.set(1, 0.7, 1);
   hc.add(mouthSmile);
@@ -296,7 +375,7 @@ export function buildRig(f: Fighter, skinIdx = 0): RigParts {
   // beard
   if (L.beard === 'full' || L.beard === 'trim') {
     const full = L.beard === 'full';
-    const g = new THREE.SphereGeometry(HEAD_R * (full ? 1.05 : 1.02), 36, 18, -0.15, Math.PI + 0.3, Math.PI * (full ? 0.63 : 0.67), Math.PI * (full ? 0.33 : 0.27));
+    const g = beardShell(HEAD_R * (full ? 1.05 : 1.02), full);
     const bm = new THREE.Mesh(g, beardM);
     bm.scale.set(1.03, 1, 1.02);
     bm.position.set(0, -0.02, 0.01);
@@ -310,6 +389,22 @@ export function buildRig(f: Fighter, skinIdx = 0): RigParts {
     const mus = capsule(0.022, 0.1, beardM, 8);
     mus.rotation.z = Math.PI / 2;
     mus.position.set(0, -0.085, HEAD_R * 0.93);
+    hc.add(mus);
+  }
+  if (L.beard === 'scruff') {
+    const st = new THREE.Mesh(
+      new THREE.SphereGeometry(HEAD_R * 1.01, 32, 16, -0.12, Math.PI + 0.24, Math.PI * 0.57, Math.PI * 0.38),
+      new THREE.MeshStandardMaterial({ color: L.beardColor ?? L.hair, transparent: true, opacity: 0.62, roughness: 1 }),
+    );
+    st.position.y = -0.02;
+    hc.add(st);
+    const chin = sphere(HEAD_R * 0.2, beardM, 14, 10);
+    chin.scale.set(1.3, 0.7, 0.7);
+    chin.position.set(0, -0.23, 0.15);
+    hc.add(chin);
+    const mus = capsule(0.013, 0.09, beardM, 8);
+    mus.rotation.z = Math.PI / 2;
+    mus.position.set(0, -0.083, HEAD_R * 0.935);
     hc.add(mus);
   }
   if (L.beard === 'stubble') {
@@ -461,12 +556,63 @@ export function buildRig(f: Fighter, skinIdx = 0): RigParts {
     foot.add(sole);
   }
 
+  // wheelchair skin: the chair is attached to the root so it stays upright while the upper body fights
+  let wheels: THREE.Object3D[] = [];
+  let chair: THREE.Group | null = null;
+  if (skin.wheelchair) {
+    chair = new THREE.Group();
+    const frameM = M('#2b2f36', { metalness: 0.8, roughness: 0.3 });
+    const seatM = M('#15171b', { roughness: 0.8 });
+    const tyreM = M('#101010', { roughness: 0.9 });
+    const rimM = M('#c9ced6', { metalness: 1, roughness: 0.25 });
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.44), seatM);
+    seat.position.set(0, 0.5, -0.02);
+    chair.add(seat);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.42, 0.05), seatM);
+    back.position.set(0, 0.76, -0.25);
+    back.rotation.x = -0.12;
+    chair.add(back);
+    for (const sd of [-1, 1]) {
+      const wheel = new THREE.Group();
+      const tyre = new THREE.Mesh(new THREE.TorusGeometry(0.29, 0.03, 10, 36), tyreM);
+      tyre.rotation.y = Math.PI / 2;
+      wheel.add(tyre);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.012, 6, 36), rimM);
+      rim.rotation.y = Math.PI / 2;
+      wheel.add(rim);
+      for (let k = 0; k < 6; k++) {
+        const spoke = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.5), rimM);
+        spoke.rotation.x = (k / 6) * Math.PI;
+        wheel.add(spoke);
+      }
+      wheel.position.set(sd * 0.3, 0.32, -0.06);
+      chair.add(wheel);
+      wheels.push(wheel);
+      const caster = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.03, 16), tyreM);
+      caster.rotation.z = Math.PI / 2;
+      caster.position.set(sd * 0.2, 0.05, 0.3);
+      chair.add(caster);
+      const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.5), frameM);
+      rail.rotation.x = Math.PI / 2;
+      rail.position.set(sd * 0.23, 0.5, 0.08);
+      chair.add(rail);
+      const push = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.5), frameM);
+      push.position.set(sd * 0.21, 0.8, -0.28);
+      chair.add(push);
+    }
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.02, 0.14), frameM);
+    foot.position.set(0, 0.1, 0.38);
+    chair.add(foot);
+    chair.scale.setScalar(hm);
+    root.add(chair);
+  }
+
   root.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; } });
 
   return {
     root, body, joints, hipsBaseY: legLen, head: head as THREE.Group, headBob,
     lidL: lids[0], lidR: lids[1], mouthOpen, mouthSmile, materials,
-    handL: hands[0], handR: hands[1], height: 1.75 * hm,
+    handL: hands[0], handR: hands[1], height: 1.75 * hm, wheelchair: !!skin.wheelchair, wheels, chair,
   };
 }
 
@@ -546,6 +692,32 @@ function buildHair(hc: THREE.Group, L: Look, hairM: THREE.Material, M: (c: strin
       const bk = capsule(0.2, 0.18, hairM);
       bk.position.set(0, -0.08, -0.14);
       bk.scale.set(1.25, 1, 0.7);
+      hc.add(bk);
+      break;
+    }
+    case 'mop': {
+      // shaggy mop-top: bangs over the forehead, locks over the ears, full back
+      bumps(22, 0.06, 0.085, 1.2, 0.03, 91);
+      const fringe = new THREE.Mesh(new THREE.SphereGeometry(0.2, 24, 14, 0, Math.PI * 2, 0, Math.PI * 0.55), hairM);
+      fringe.scale.set(1.45, 0.55, 0.9);
+      fringe.rotation.x = 0.9;
+      fringe.position.set(0.02, HEAD_R * 0.62, HEAD_R * 0.62);
+      hc.add(fringe);
+      for (let i = 0; i < 6; i++) {
+        const strand = capsule(0.028, 0.07, hairM, 8);
+        strand.position.set(-0.13 + i * 0.055, HEAD_R * 0.5 - (i % 2) * 0.015, HEAD_R * 0.86);
+        strand.rotation.set(0.35, 0, (i - 2.5) * 0.12);
+        hc.add(strand);
+      }
+      for (const sd of [-1, 1]) {
+        const lock = capsule(0.07, 0.12, hairM, 10);
+        lock.position.set(sd * HEAD_R * 0.93, 0.05, -0.02);
+        lock.rotation.z = sd * 0.12;
+        hc.add(lock);
+      }
+      const bk = capsule(0.19, 0.1, hairM);
+      bk.position.set(0, -0.02, -0.16);
+      bk.scale.set(1.3, 1, 0.7);
       hc.add(bk);
       break;
     }

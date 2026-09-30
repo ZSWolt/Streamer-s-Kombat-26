@@ -15,6 +15,7 @@ export const DASH_F_SPEED = 90;
 export const DASH_B_FRAMES = 16;
 export const DASH_B_SPEED = 70;
 export const DASH_WINDOW = 12;
+export const RUN_SPEED = 66;
 
 export const STAGE_HALF = 5400;
 export const MAX_SEPARATION = 6400;

@@ -16,6 +16,8 @@ import { STAGES, buildStage, type StageScene } from '../render/stages';
 import { Vfx } from '../render/vfx';
 import { Hud } from '../ui/Hud';
 import type { App } from '../app/App';
+import { hypeInput, spInput } from '../ui/keys';
+import { FLAVOR, banterFor } from '../data/flavor';
 
 export type InputSource = { kind: 'local'; player: 0 | 1 } | { kind: 'cpu'; level: number } | { kind: 'remote' } | { kind: 'none' };
 
@@ -57,6 +59,7 @@ export class LocalDriver implements Driver {
     while (this.acc >= 1 / C.FPS && n < 4) {
       this.p = cloneMatch(this.m);
       const inputs: [number, number] = [this.read(0), this.read(1)];
+      this.app.input.clearTaps();
       this.last = inputs;
       step(this.m, inputs);
       events.push(...this.m.events);
@@ -76,6 +79,7 @@ export interface BattleOptions {
   onQuit: () => void;
   arcadeStage?: number;
   labels?: [string, string];
+  showStart?: boolean;
 }
 
 export class Battle {
@@ -93,6 +97,9 @@ export class Battle {
   private unsubs: (() => void)[] = [];
   private introShown = [false, false];
   private hitEmoteCd = 0;
+  private gate = false;
+  private banter: [string, string] = ['', ''];
+  practice: { dummy: () => string; cycle: () => void } | null = null;
 
   constructor(private app: App, private r: Renderer, public opts: BattleOptions) {
     const cfg = opts.cfg;
@@ -125,26 +132,73 @@ export class Battle {
       this.unsubs.push(app.input.onUi((e) => { if (e === 'any' || e === 'confirm' || e === 'start') this.quit(); }));
       this.hud.bigText('DEMO', 'לחצו על מקש כדי לחזור', 'demo', 3000);
     }
+    this.banter = banterFor(ROSTER[cfg.chars[0]].id, ROSTER[cfg.chars[1]].id);
+    // pre-fight card over the stage (local modes)
+    if (opts.showStart && this.driver instanceof LocalDriver) {
+      this.gate = true;
+      this.driver.paused = true;
+      this.hud.setVisible(false);
+      app.menus.startOverlay(cfg, undefined, () => {
+        this.gate = false;
+        (this.driver as LocalDriver).paused = false;
+        this.hud.setVisible(true);
+        audio.sfx('ui_start');
+      });
+    }
+  }
+
+  /** practice: put everyone back to the starting spots */
+  resetPositions() {
+    const d = this.driver as LocalDriver;
+    if (!(d instanceof LocalDriver)) return;
+    const m = d.m;
+    m.f.forEach((f, i) => { f.x = i === 0 ? -1300 : 1300; f.y = 0; f.vx = 0; f.vy = 0; f.hp = C.MAX_HP; f.st = St.Idle; f.stFrame = 0; f.move = -1; f.facing = i === 0 ? 1 : -1; });
+    m.proj = [];
+    this.vfx.clear();
+  }
+
+  /** practice: jump straight to FINISH HIM so the player can try the banalities */
+  practiceBanality() {
+    const d = this.driver as LocalDriver;
+    if (!(d instanceof LocalDriver) || d.m.phase !== 'fight') return;
+    const m = d.m;
+    this.resetPositions();
+    m.f[1].x = m.f[0].x + 1100;
+    m.f[1].hp = 0;
+    m.f[1].st = St.Dizzy;
+    m.f[1].stFrame = 0;
+    m.winner = 0;
+    m.phase = 'finish';
+    m.phaseFrame = 0;
+    this.onEvent({ f: m.frame, type: 'finish', p: 1, a: ROSTER[m.f[1].char].female ? 1 : 0 }, m);
   }
 
   togglePause() {
     const d = this.driver as LocalDriver;
     if (!(d instanceof LocalDriver)) return;
-    if (this.opts.mode === 'demo') return;
+    if (this.opts.mode === 'demo' || this.gate) return;
     d.paused = !d.paused;
     if (d.paused) this.showPause(); else this.hidePause();
     audio.sfx(d.paused ? 'ui_back' : 'ui_ok');
   }
 
   private showPause() {
-    this.pauseEl = this.app.menus.pauseMenu(this.driver.state(), {
+    this.hud.el.classList.add('paused');
+    this.pauseEl = this.app.menus.pauseMenu(this, {
       resume: () => this.togglePause(),
       restart: () => { this.hidePause(); this.app.restartBattle(); },
+      select: () => { this.hidePause(); this.ended = true; this.app.reselect(); },
       quit: () => { this.hidePause(); this.quit(); },
+      practice: this.practice ? {
+        dummy: this.practice.dummy, cycleDummy: this.practice.cycle,
+        banality: () => { this.hidePause(); this.practiceBanality(); },
+        resetPos: () => { this.hidePause(); this.resetPositions(); },
+      } : undefined,
     });
   }
 
   private hidePause() {
+    this.hud.el.classList.remove('paused');
     this.pauseEl?.remove();
     this.pauseEl = null;
     const d = this.driver as LocalDriver;
@@ -199,6 +253,7 @@ export class Battle {
     this.stage.update(this.t, dt);
     this.vfx.update(dt, this.t);
     this.hud.update(m, dt, res.inputs);
+    this.hud.el.classList.toggle('letterbox', m.phase === 'intro');
     music.intensity = m.phase === 'finish' ? 0.2 : 1;
   }
 
@@ -210,7 +265,8 @@ export class Battle {
       case 'charIntro': {
         const p = e.p!;
         const f = ROSTER[m.f[p].char];
-        this.hud.bigText(f.he, f.title + ' · "' + f.intro + '"', 'intro-name', 1900);
+        this.hud.nameCard(p, f.title, f.he, 1900);
+        setTimeout(() => this.hud.banter(p, f.he, this.banter[p], 2100), 650);
         void voices.play(f.id, 'intro', p === 0 ? -0.4 : 0.4);
         audio.sfx('select', 0, 0.6);
         break;
@@ -241,6 +297,7 @@ export class Battle {
         this.cam.shake((0.25 + heavy * 0.25) * fx);
         if (heavy >= 2) { this.r.kickChroma(0.006 * fx); this.cam.punch(0.25); this.stage.pulse(0.6); }
         this.views[e.p!].onHit(heavy, (e.y ?? 1000) > 1100);
+        this.hud.calloutHit(1 - e.p!);
         this.hud.viewers += 4 + heavy * 10;
         if (heavy >= 2) this.hud.react('bigHit', {}, 1 + (Math.random() < 0.5 ? 1 : 0));
         else if (Math.random() < 0.25) this.hud.react('hit');
@@ -267,7 +324,7 @@ export class Battle {
         const f = ROSTER[m.f[e.p!].char];
         const idx = (e.a ?? 14) - 14;
         const sp = f.specials[idx];
-        if (sp) this.hud.banner(e.p!, sp.name, sp.input === 'U' ? 'U' : sp.input === 'FU' ? '→+U' : '↓+U');
+        if (sp) this.hud.callout(e.p!, sp.name, FLAVOR[f.id]?.shouts[idx] ?? '', spInput(sp.input));
         A.sfx('special', pan(m.f[e.p!].x));
         if (Math.random() < 0.35) this.hud.react('special');
         if (Math.random() < 0.35) void voices.play(f.id, 'special', pan(m.f[e.p!].x));
@@ -313,7 +370,7 @@ export class Battle {
         const f = ROSTER[m.f[e.p!].char];
         A.sfx('hype');
         this.r.flash(f.accent, 0.35, 400);
-        this.hud.banner(e.p!, f.hype.name, 'U+L', true);
+        this.hud.callout(e.p!, f.hype.name, 'HYPE!', hypeInput(), true);
         this.hud.react('hype', {}, 3);
         this.hud.alert('raid', { s: f.name });
         void announcer.say('hype');
@@ -329,6 +386,7 @@ export class Battle {
       case 'status': this.hud.bigText(e.s === 'reversed' ? 'מבולבל!' : e.s === 'slow' ? 'קפוא!' : '!', '', 'small', 700); break;
       case 'stun': A.sfx('dizzy'); this.vfx.emote(m.f[e.p!].x / 1000, 2.1, '💫', 0.6); break;
       case 'ko': {
+        this.hud.hideFinisher();
         if (e.p === -1) { this.hud.bigText('נוקאאוט כפול', 'DOUBLE K.O.', 'ko', 2000); void announcer.sayNow('doubleko'); }
         else { this.hud.bigText('K.O.', '', 'ko', 2000); void announcer.sayNow('ko'); }
         A.sfx('ko');
@@ -342,18 +400,27 @@ export class Battle {
         break;
       }
       case 'finish': {
-        this.hud.bigText(e.a ? 'תגמור אותה!' : 'תגמור אותו!', e.a ? 'FINISH HER' : 'FINISH HIM', 'finish', 2600);
+        this.hud.bigText(e.a ? 'גמרי אותה!' : 'גמור אותו!', e.a ? 'FINISH HER' : 'FINISH HIM', 'finish', 2200);
         void announcer.sayNow(e.a ? 'finish_her' : 'finish_him');
         music.intensity = 0.2;
         this.hud.react('finish', {}, 4);
-        if (this.app.settings.hints) setTimeout(() => this.hud.bigText('', '↓ ↓ + U  —  BANALITY', 'hint', 2400), 1800);
+        const w = 1 - e.p!;
+        const human = this.opts.sources[w]?.kind === 'local';
+        setTimeout(() => { if (this.driver.state().phase === 'finish') this.hud.showFinisher(m.f[w].char, human, !!ROSTER[m.f[w].char].female); }, 900);
         break;
       }
       case 'banality':
+        this.hud.pickFinisher(e.a ?? 0);
         this.cine.start('banality', e.s ?? '', e.p!);
         this.hud.react('banality', {}, 5);
         break;
-      case 'banalityEnd': break;
+      case 'banalityEnd': {
+        const f = ROSTER[m.f[e.p!].char];
+        const b = FLAVOR[f.id]?.banalities[e.a ?? 0];
+        if (b) this.hud.banalityStamp(e.a ?? 0, b.name, b.en, b.stamp, b.line, f.he);
+        void voices.play(f.id, 'win');
+        break;
+      }
       case 'roundWin': {
         const f = ROSTER[m.f[e.p!].char];
         const fem = f.female;

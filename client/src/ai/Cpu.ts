@@ -88,10 +88,10 @@ export class Cpu {
     const dirFor = (i: number) => (i === 0 ? 0 : i === 1 ? F : C.IN_DOWN);
 
     if (m.phase === 'finish' && m.winner === this.p) {
-      if (Math.random() < d.banality && dist < C.BANALITY_RANGE) {
-        this.push(C.IN_DOWN, 3); this.push(0, 3); this.push(C.IN_DOWN, 3); this.push(C.IN_SP, 3); this.push(0, 60);
-      } else if (dist > 900) this.push(F, 12);
-      else { this.push(C.IN_HP, 2); this.push(0, 30); }
+      // pick a finisher: punch = banality 1, kick = banality 2, special = surprise
+      this.push(0, 30 + Math.floor(Math.random() * 40));
+      this.push([C.IN_LP, C.IN_LK, C.IN_SP][Math.floor(Math.random() * 3)], 3);
+      this.push(0, 60);
       return;
     }
     if (op.st === St.Knockdown || op.st === St.Getup) {

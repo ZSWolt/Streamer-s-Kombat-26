@@ -13,9 +13,10 @@ export const ACTION_HE: Record<Action, string> = {
 
 export type KeyMap = Record<Action, string[]>;
 
+// Comfortable default: left hand on WASD, thumb on Space = block, right hand home row J/K/L (+ I/O above).
 export const DEFAULT_P1: KeyMap = {
   up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'],
-  lp: ['KeyJ'], hp: ['KeyI'], lk: ['KeyK'], hk: ['KeyO'], block: ['ShiftLeft', 'KeyL'], sp: ['KeyU'], start: ['KeyP', 'Escape'],
+  lp: ['KeyJ'], hp: ['KeyI'], lk: ['KeyK'], hk: ['KeyO'], block: ['Space', 'ShiftLeft'], sp: ['KeyL', 'KeyU'], start: ['Escape', 'KeyP'],
 };
 export const DEFAULT_P2: KeyMap = {
   up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'],
@@ -33,6 +34,7 @@ export type UiEvent = 'up' | 'down' | 'left' | 'right' | 'confirm' | 'back' | 's
 
 export class InputManager {
   private keys = new Set<string>();
+  private tapped = new Set<string>(); // keys pressed since the last sim frame (so very short taps still count)
   maps: [KeyMap, KeyMap] = [structuredClone(DEFAULT_P1), structuredClone(DEFAULT_P2)];
   solo = true; // when true, arrows also drive P1
   /** which gamepad index feeds each player (-1 = none) */
@@ -49,6 +51,7 @@ export class InputManager {
       if (e.target instanceof HTMLInputElement) return;
       if (!e.repeat) this.keyUi(e.code, true);
       this.keys.add(e.code);
+      this.tapped.add(e.code);
       this.lastDevice = 'keyboard';
       if (e.code.startsWith('Arrow') || e.code === 'Space' || e.code === 'Tab') e.preventDefault();
     });
@@ -66,8 +69,18 @@ export class InputManager {
     return () => this.uiListeners.delete(cb);
   }
 
+  // Listeners registered while a key press is being dispatched must not receive the rest of that same press
+  // (otherwise e.g. the screen opened by "confirm" would also consume the "any" of the same key).
+  private snapshot: Set<(e: UiEvent, player: number) => void> | null = null;
+
   private emitUi(e: UiEvent, p: number) {
-    for (const cb of [...this.uiListeners]) cb(e, p);
+    const ls = this.snapshot ?? new Set(this.uiListeners);
+    for (const cb of ls) if (this.uiListeners.has(cb)) cb(e, p);
+  }
+
+  private batch(fn: () => void) {
+    this.snapshot = new Set(this.uiListeners);
+    try { fn(); } finally { this.snapshot = null; }
   }
 
   private keyUi(code: string, down: boolean) {
@@ -84,9 +97,11 @@ export class InputManager {
     else if (code === 'Enter' || code === 'Space' || code === 'NumpadEnter' || m0('lp')) ev = 'confirm';
     else if (code === 'Escape' || code === 'Backspace' || m0('lk')) ev = 'back';
     else if (m0('hp') || m0('hk')) ev = 'alt';
-    if (code === 'Escape' || code === 'KeyP') this.emitUi('start', player);
-    if (ev) this.emitUi(ev, player);
-    this.emitUi('any', player);
+    this.batch(() => {
+      if (code === 'Escape' || code === 'KeyP') this.emitUi('start', player);
+      if (ev) this.emitUi(ev, player);
+      this.emitUi('any', player);
+    });
   }
 
   private padsState(): (Gamepad | null)[] {
@@ -114,21 +129,27 @@ export class InputManager {
         } else this.uiRepeat.delete(k);
       }
       const edge = (b: number) => now[b] && !prev[b];
-      if (edge(0) || edge(2)) { this.emitUi('confirm', player); this.emitUi('any', player); this.lastDevice = 'pad'; }
-      if (edge(1)) { this.emitUi('back', player); this.emitUi('any', player); }
-      if (edge(3)) this.emitUi('alt', player);
-      if (edge(9)) { this.emitUi('start', player); this.emitUi('any', player); }
+      this.batch(() => {
+        if (edge(0) || edge(2)) { this.emitUi('confirm', player); this.emitUi('any', player); this.lastDevice = 'pad'; }
+        if (edge(1)) { this.emitUi('back', player); this.emitUi('any', player); }
+        if (edge(3)) this.emitUi('alt', player);
+        if (edge(9)) { this.emitUi('start', player); this.emitUi('any', player); }
+      });
       this.prevPad[i] = now;
     });
   }
+
+  /** call after each simulation frame has read its inputs */
+  clearTaps() { this.tapped.clear(); }
 
   /** Sim input bitmask for a local player */
   read(player: number): number {
     let bits = 0;
     const map = this.maps[player];
+    const down = (c: string) => this.keys.has(c) || this.tapped.has(c);
     for (const a of ACTIONS) {
-      if (map[a].some((c) => this.keys.has(c))) bits |= ACTION_BIT[a];
-      if (player === 0 && this.solo && SOLO_EXTRA[a]?.some((c) => this.keys.has(c))) bits |= ACTION_BIT[a];
+      if (map[a].some(down)) bits |= ACTION_BIT[a];
+      if (player === 0 && this.solo && SOLO_EXTRA[a]?.some(down)) bits |= ACTION_BIT[a];
     }
     const padIdx = this.padFor[player];
     const pads = this.padsState();
