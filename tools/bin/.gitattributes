@@ -1,0 +1,2 @@
+*.exe filter=lfs diff=lfs merge=lfs -text
+C:/Users/Ariel[[:space:]]K/Documents/GitHub/Streamer-s-Kombat-26/tools/bin/ffmpeg.exe filter=lfs diff=lfs merge=lfs -text
