@@ -1,0 +1,20 @@
+// Beat your rival with a fighter to unlock that fighter's golden skin (the "secret" characters).
+export const RIVALS: Record<string, string> = {
+  odedsvr: 'ronengg',
+  ronengg: 'odedsvr',
+  inde: 'nave',
+  igz: 'odedsvr',
+  liorslife: 'ronengg',
+  psyqr: 'devidtur',
+  maorameleh: 'pedrofederer',
+  masterohad: 'shoval',
+  pedrofederer: 'maorameleh',
+  k0nkamc: 'shotist',
+  devidtur: 'psyqr',
+  sasivetheboiz: 'k0nkamc',
+  shotist: 'k0nkamc',
+  nave: 'inde',
+  shoval: 'masterohad',
+  paz: 'ori',
+  ori: 'paz',
+};
