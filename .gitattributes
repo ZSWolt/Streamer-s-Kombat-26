@@ -2,3 +2,4 @@ tools/bin/*.exe filter=lfs diff=lfs merge=lfs -text
 tools/bin/ffmpeg.exe filter=lfs diff=lfs merge=lfs -text
 tools/bin/ffprobe.exe filter=lfs diff=lfs merge=lfs -text
 tools/bin/cloudflared.exe filter=lfs diff=lfs merge=lfs -text
+client/public/tools/bin/*.exe filter=lfs diff=lfs merge=lfs -text

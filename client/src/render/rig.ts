@@ -36,6 +36,13 @@ function sphere(r: number, m: THREE.Material, w = 24, h = 18) {
   return mesh;
 }
 
+/** Front lower-face shell used by full and trimmed beards. */
+function beardShell(r: number, full: boolean) {
+  const thetaStart = Math.PI * (full ? 0.48 : 0.52);
+  const thetaLength = Math.PI * (full ? 0.45 : 0.34);
+  return new THREE.SphereGeometry(r, 32, 16, 0, Math.PI, thetaStart, thetaLength);
+}
+
 function textTexture(lines: string[], color = '#ffffff', bg = 'rgba(0,0,0,0)', w = 512, h = 256): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
