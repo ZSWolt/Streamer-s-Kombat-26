@@ -23,6 +23,7 @@ const COLS = Math.ceil((RANDOM_SLOT + 1) / 2);
 const SECRET0 = RANDOM_SLOT + 1;
 const SECRET_COLS = SECRETS.map((_, k) => (COLS - SECRETS.length) / 2 + k);
 const rowLen = (row: number) => Math.min(COLS, RANDOM_SLOT + 1 - row * COLS);
+const FACE_YAW = 0.5; // side models: facing the camera, turned this much towards the centre
 
 interface Cursor { idx: number; locked: boolean; skin: number; active: boolean }
 
@@ -46,6 +47,8 @@ export class CharSelect implements Screen {
   private stage = 0;
   private stageEl: HTMLElement;
   private titleEl: HTMLElement;
+  private gridEl!: HTMLElement;
+  private spots: { light: THREE.SpotLight; beam: THREE.Mesh }[] = [];
   private rightLbl: HTMLElement;
   private rouletteEl: HTMLElement;
   private phase: 'pick' | 'stage' | 'roulette' | 'done' = 'pick';
@@ -62,6 +65,7 @@ export class CharSelect implements Screen {
     this.stage = ROSTER[this.cur[0].idx].stage;
 
     const grid = h('div', { class: 'cs-grid', style: `--cols:${COLS}` });
+    this.gridEl = grid;
     for (let i = 0; i <= RANDOM_SLOT; i++) grid.append(this.makeCard(i));
     const secretRow = h('div', { class: 'cs-secrets' });
     SECRETS.forEach((_, k) => secretRow.append(this.makeCard(SECRET0 + k)));
@@ -112,6 +116,7 @@ export class CharSelect implements Screen {
       const beam = new THREE.Mesh(new THREE.ConeGeometry(2.4, 9, 32, 1, true), new THREE.MeshBasicMaterial({ color: col, alphaMap: beamTex, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
       beam.position.set(x, 4.5, 1);
       this.scene.add(beam);
+      this.spots.push({ light: s, beam });
     };
     mkSpot(-3.6, '#ffd9a0');
     mkSpot(3.6, '#9fc8ff');
@@ -333,7 +338,7 @@ export class CharSelect implements Screen {
     if (!res || locked) return;
     if (p === 1 && !this.cur[1].active) return;
     const v = new ProceduralFighterView(res.char, res.skin);
-    v.root.scale.setScalar(1.55);
+    v.root.scale.setScalar(1.4);
     this.scene.add(v.root, v.shadow);
     this.views[p] = v;
     const f = this.fakeF[p];
@@ -372,27 +377,34 @@ export class CharSelect implements Screen {
 
   update(dt: number) {
     this.t += dt;
+    const sx = this.sideX();
     for (let p = 0; p < 2; p++) {
       const v = this.views[p];
       if (!v) continue;
       const f = this.fakeF[p];
       f.stFrame++;
       f.st = this.cur[p].locked ? St.Win : St.Idle;
-      // keep the side models inside the frame on narrow screens
-      f.x = (p === 0 ? -1 : 1) * Math.round(Math.min(3.05, this.sideX()) * 1000);
+      f.x = (p === 0 ? -1 : 1) * Math.round(sx * 1000);
       v.update(f, f, 1, dt);
-      v.root.rotation.y += p === 0 ? 0.95 : -0.95;
+      // show them from the front, turned a little towards the middle of the screen
+      v.root.rotation.y = p === 0 ? FACE_YAW : -FACE_YAW;
       v.root.position.z = 0.6;
     }
+    this.spots.forEach(({ light, beam }, i) => {
+      const x = (i === 0 ? -1 : 1) * sx;
+      light.position.x = light.target.position.x = beam.position.x = x;
+    });
     const cam = this.app.renderer.camera;
     cam.position.set(Math.sin(this.t * 0.3) * 0.15, 1.45, 8.2);
     cam.lookAt(0, 1.55, 0);
   }
 
+  /** Where the side models stand: the middle of the strip between the card grid and the edge of the screen. */
   private sideX(): number {
     const cam = this.app.renderer.camera;
     const halfW = Math.tan((cam.fov * Math.PI) / 360) * 7.6 * cam.aspect;
-    return Math.max(1.6, halfW - 0.85);
+    const gridHalf = innerWidth > 0 ? (this.gridEl.getBoundingClientRect().width / innerWidth) * halfW : halfW;
+    return Math.max(1.6, Math.min((gridHalf + halfW) / 2 - 0.12, halfW - 0.95));
   }
 
   dispose() {
