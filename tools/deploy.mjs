@@ -6,11 +6,12 @@
 // sources and the fresh dist/ are copied into it, the root index.html (which points Pages at dist/) is
 // regenerated, and only the copied paths are committed — other work in the clone is left alone.
 //
-// GitHub Pages publishes the repository root of `main` ("deploy from a branch"): the root index.html written
-// below points into the committed dist/. The site is https://streamerskombatil.online/ (custom domain; the old
-// github.io address redirects to it). There used to be a second deployment, a workflow that published the
-// contents of dist/ at the root; the two raced on every push and their different layouts left visitors with a
-// cached page looking at 404s (a white screen), so it was removed — keep it that way.
+// The site (https://streamerskombatil.online/; the old github.io address redirects to it) is the root index.html
+// written below plus the committed dist/ it points into. `.github/workflows/pages.yml` publishes exactly those
+// two and nothing else, so the repository can be private. If the Pages source in the repo settings is still
+// "Deploy from a branch", GitHub also publishes the whole repository root; both use the same addresses for the
+// game, so they can race harmlessly. Never publish a different layout (e.g. the contents of dist/ at the root):
+// a visitor with a cached page then looks at 404s — a white screen.
 import { spawnSync } from 'node:child_process';
 import dns from 'node:dns/promises';
 import fs from 'node:fs';
@@ -68,7 +69,7 @@ function copy(rel) {
 }
 console.log('▸ sync →', CLONE);
 for (const d of ['client', 'tests', 'docs']) copy(d);
-for (const f of ['package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts']) copy(f);
+for (const f of ['package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', path.join('.github', 'workflows', 'pages.yml')]) copy(f);
 for (const f of fs.readdirSync(path.join(ROOT, 'tools'))) if (/\.(py|mjs)$/.test(f)) copy(path.join('tools', f));
 for (const f of fs.readdirSync(path.join(ROOT, 'tools', 'models'))) if (/\.(py|sh)$/.test(f)) copy(path.join('tools', 'models', f));
 copy(path.join('tools', 'models', 'overrides'));
@@ -96,7 +97,8 @@ fs.cpSync(path.join(ROOT, 'dist'), distDst, { recursive: true });
 const html = fs.readFileSync(path.join(ROOT, 'dist', 'index.html'), 'utf8');
 if (!/<meta name="viewport"[^>]*>/.test(html)) { console.error('dist/index.html has no viewport meta to anchor the <base> tag'); process.exit(1); }
 // (relative, so the same page works under /Streamer-s-Kombat-26/ on github.io and at the root of the custom domain)
-fs.writeFileSync(path.join(CLONE, 'index.html'), html.replace(/(<meta name="viewport"[^>]*>)/, '$1\n    <base href="dist/" />'));
+const rootHtml = html.replace(/(<meta name="viewport"[^>]*>)/, '$1\n    <base href="dist/" />');
+fs.writeFileSync(path.join(CLONE, 'index.html'), rootHtml);
 
 // ---------------------------------------------------------------- commit + push
 const list = path.join(os.tmpdir(), `sk-deploy-${process.pid}.txt`);
@@ -112,7 +114,8 @@ fs.rmSync(mf);
 console.log('✓ committed', gitOut(['log', '--oneline', '-1']));
 if (flag('--no-push')) process.exit(0);
 // someone else may have pushed meanwhile (GitHub itself commits a CNAME when the Pages domain is changed)
-git(['fetch', '-q', 'origin', 'main'], { allowFail: true });
+// (no background maintenance: a detached `git gc` would keep this script's output pipe open after it ends)
+git(['fetch', '-q', '--no-auto-maintenance', 'origin', 'main'], { allowFail: true });
 if (Number(gitOut(['rev-list', '--count', 'HEAD..origin/main'])) > 0) {
   console.log('▸ merging new commits from origin/main');
   git(['merge', '--no-edit', '-q', 'origin/main']);
@@ -130,7 +133,7 @@ for (let i = 0; i < 40; i++) {
   await new Promise((r) => setTimeout(r, 6000));
   try {
     const live = await (await fetch(SITE + '?t=' + Date.now(), { cache: 'no-store', redirect: 'follow' })).text();
-    if (squash(live) === squash(html) || (i >= 10 && bundle && live.includes(bundle))) { console.log(`✓ live after ~${(i + 1) * 6}s: ${SITE}`); process.exit(0); }
+    if (squash(live) === squash(rootHtml) || (i >= 10 && bundle && live.includes(bundle))) { console.log(`✓ live after ~${(i + 1) * 6}s: ${SITE}`); process.exit(0); }
   } catch { /* keep polling */ }
 }
 console.log('! pushed, but the site had not switched to the new build after 4 minutes — check the repo\'s Actions tab');

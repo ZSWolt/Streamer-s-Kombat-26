@@ -1,0 +1,55 @@
+# Publishes the game — and only the game — to GitHub Pages (https://streamerskombatil.online/).
+#
+# The site is the root index.html plus the committed dist/ it points into; nothing else in the repository
+# (sources, tools, docs) is uploaded, so the repository can be private while the game stays public.
+#
+# For this to be the only thing that publishes, the repository's Settings -> Pages -> "Build and deployment"
+# source must be "GitHub Actions". While it is still "Deploy from a branch", GitHub also publishes the whole
+# repository root on every push; both put the game at the same addresses, so nothing breaks — but the rest of the
+# repository is then reachable on the site too.
+name: Publish the game
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assemble the site
+        run: |
+          mkdir _site
+          cp index.html _site/
+          cp -r dist _site/dist
+          rm -rf _site/dist/tools
+          if [ -f CNAME ]; then cp CNAME _site/; fi
+          touch _site/.nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
