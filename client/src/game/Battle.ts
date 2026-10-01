@@ -371,7 +371,9 @@ export class Battle {
         if (sp) this.hud.callout(e.p!, sp.name, FLAVOR[f.id]?.shouts[idx] ?? '', spInput(sp.input));
         A.sfx('special', pan(m.f[e.p!].x));
         if (Math.random() < 0.35) this.hud.react('special');
-        if (Math.random() < 0.35) void voices.play(f.id, 'special', pan(m.f[e.p!].x));
+        // a line cut for this very move is said every time; the general ones only now and then
+        const px = pan(m.f[e.p!].x);
+        void voices.play(f.id, `sp${idx}`, px).then((own) => { if (!own && Math.random() < 0.35) void voices.play(f.id, 'special', px); });
         break;
       }
       case 'proj':

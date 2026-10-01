@@ -87,13 +87,15 @@ export const announcer = new Announcer();
 /** Real voice clips of the streamers (cut from their own streams), if present */
 export class VoiceBank {
   private cache = new Map<string, string[]>();
-  async play(charId: string, kind: 'intro' | 'win' | 'hurt' | 'ko' | 'special' | 'taunt', pan = 0) {
+  /** `sp<slot>` is a line that belongs to one special move; resolves to whether the fighter has a clip of that kind */
+  async play(charId: string, kind: 'intro' | 'win' | 'hurt' | 'ko' | 'special' | 'taunt' | `sp${number}`, pan = 0): Promise<boolean> {
     const list = await this.list(charId);
-    const opts = list.filter((f) => f.startsWith(kind));
-    if (!opts.length) return;
+    const opts = list.filter((f) => f.startsWith(kind + '_'));
+    if (!opts.length) return false;
     const file = opts[Math.floor(Math.random() * opts.length)];
     const buf = await audio.loadBuffer(`assets/audio/voices/${charId}/${file}`);
     if (buf) audio.playBuffer(buf, 'voice', { pan, vol: 1 });
+    return true;
   }
   private async list(charId: string): Promise<string[]> {
     const hit = this.cache.get(charId);
