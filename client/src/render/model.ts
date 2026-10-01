@@ -30,6 +30,8 @@ interface SkRig {
   tips: Record<string, number[]>;
   headTop: number[];
   sole: number;
+  /** finger bones (children of the hand bones): each turns about `axis` (model space, rest pose) by angle x grip */
+  fingers?: { bone: string; axis: number[]; angle: number }[];
 }
 export interface ModelAsset { id: string; scene: THREE.Object3D; rig: SkRig }
 
@@ -146,6 +148,9 @@ export class ModelSkin {
   headSize: number;
   /** When true the feet carry the body (planted, pelvis kept within reach); otherwise it is airborne or lying. */
   feetOnGround = true;
+  /** How closed each hand is (left, right): 0 open .. 1 fist. Only models with finger bones show it. */
+  grip: [number, number] = [1, 1];
+  private fingers: { bone: THREE.Object3D; rest: THREE.Quaternion; axis: THREE.Vector3; angle: number; hand: 0 | 1 }[] = [];
   private bones: THREE.Object3D[] = [];
   private bindPos: THREE.Vector3[] = [];
   private bindRot: THREE.Quaternion[] = [];
@@ -215,6 +220,31 @@ export class ModelSkin {
       const arm = /^(arm|fore|hand)/.test(JOINTS[j]);
       const a = arm ? (JOINTS[j].endsWith('L') ? 1 : -1) * (sk.armA ?? 0) : 0;
       this.restInv.push(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), a).invert());
+    }
+
+    // fingers stay children of their hand bone; closing the hand turns each about its hinge, given in the model's
+    // rest pose and brought here into the space of the bone's parent
+    for (const fg of sk.fingers ?? []) {
+      const bone = sks.bones.find((b) => b.name === fg.bone);
+      const parent = bone?.parent as THREE.Bone | undefined;
+      const pi = parent ? sks.bones.indexOf(parent) : -1;
+      if (!bone || pi < 0) continue;
+      const pr = new THREE.Quaternion();
+      sks.boneInverses[pi].clone().invert().decompose(new THREE.Vector3(), pr, new THREE.Vector3());
+      this.fingers.push({ bone, rest: bone.quaternion.clone(), axis: V(fg.axis).applyQuaternion(pr.invert()).normalize(), angle: fg.angle, hand: /^f[R]/.test(fg.bone) ? 1 : 0 });
+    }
+    // a hand closed into a fist folds its skin over itself in the creases; drawn from both sides a fold is skin,
+    // not a hole to look through
+    if (this.fingers.length) {
+      const own = new Set(this.fingers.map((f) => sks.bones.indexOf(f.bone as THREE.Bone)));
+      inst.traverse((o) => {
+        const m = o as THREE.SkinnedMesh;
+        const idx = m.isSkinnedMesh ? m.geometry.getAttribute('skinIndex') : null;
+        if (!idx) return;
+        for (let i = 0; i < idx.count; i++) {
+          if (own.has(idx.getX(i)) || own.has(idx.getY(i))) { (m.material as THREE.Material).side = THREE.DoubleSide; return; }
+        }
+      });
     }
 
     // ---- proportions
@@ -356,6 +386,7 @@ export class ModelSkin {
       b.position.y += this.lift;
       b.quaternion.multiplyQuaternions(d[j], this.bindRot[j]);
     }
+    for (const fg of this.fingers) fg.bone.quaternion.setFromAxisAngle(fg.axis, fg.angle * this.grip[fg.hand]).multiply(fg.rest);
     this.faceAnchor.position.copy(tv.copy(this.faceOff).applyQuaternion(d[J.head])).add(p[J.head]);
     this.faceAnchor.position.y += this.lift;
   }

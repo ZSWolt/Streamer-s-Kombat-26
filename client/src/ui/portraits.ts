@@ -49,7 +49,7 @@ export async function generatePortraits(onProgress?: (p: number) => void) {
       const rig = buildRig(f, s);
       // real models are shown in their own sculpted stance
       applyPose(rig, rig.skin ? P.HUMAN.GUARD : pose);
-      if (rig.skin) rig.skin.update(0);
+      if (rig.skin) { rig.skin.grip[0] = rig.skin.grip[1] = 1; rig.skin.update(0); }
       rig.root.rotation.y = -0.35;
       scene.add(rig.root);
       rig.root.updateMatrixWorld(true);

@@ -14,14 +14,16 @@ export const EX_HIPY = NJ * 3; // hips height offset (m)
 export const EX_HIPZ = NJ * 3 + 1; // hips forward offset (m)
 export const EX_MOUTH = NJ * 3 + 2; // 0 closed .. 1 open
 export const EX_EYES = NJ * 3 + 3; // 1 open .. 0 closed
-export const POSE_LEN = NJ * 3 + 4;
+export const EX_GRIPL = NJ * 3 + 4; // how closed the hand is: 0 open .. 1 fist (models that have finger bones)
+export const EX_GRIPR = NJ * 3 + 5;
+export const POSE_LEN = NJ * 3 + 6;
 
 export type Pose = Float32Array;
-export type PoseSpec = Partial<Record<JointName, [number, number, number]>> & { hy?: number; hz?: number; mouth?: number; eyes?: number };
+export type PoseSpec = Partial<Record<JointName, [number, number, number]>> & { hy?: number; hz?: number; mouth?: number; eyes?: number; grip?: number | [number, number] };
 
 export function makePose(spec: PoseSpec, base?: Pose): Pose {
   const p = base ? new Float32Array(base) : new Float32Array(POSE_LEN);
-  if (!base) p[EX_EYES] = 1;
+  if (!base) { p[EX_EYES] = 1; p[EX_GRIPL] = 1; p[EX_GRIPR] = 1; } // fighters keep their fists closed unless a pose says otherwise
   for (const k of JOINTS) {
     const v = spec[k];
     if (v) { const i = J[k] * 3; p[i] = v[0]; p[i + 1] = v[1]; p[i + 2] = v[2]; }
@@ -30,6 +32,7 @@ export function makePose(spec: PoseSpec, base?: Pose): Pose {
   if (spec.hz !== undefined) p[EX_HIPZ] = spec.hz;
   if (spec.mouth !== undefined) p[EX_MOUTH] = spec.mouth;
   if (spec.eyes !== undefined) p[EX_EYES] = spec.eyes;
+  if (spec.grip !== undefined) { p[EX_GRIPL] = typeof spec.grip === 'number' ? spec.grip : spec.grip[0]; p[EX_GRIPR] = typeof spec.grip === 'number' ? spec.grip : spec.grip[1]; }
   return p;
 }
 
@@ -429,14 +432,34 @@ Object.assign(H_ATTACKS, {
     hit: hg({ armR: [-1.25, 0, -0.1], foreR: [-0.2, 0, 0], spine: [0.38, 0.4, 0], chest: [0.1, 0.15, 0], head: [-0.15, -0.4, 0], thighL: [-0.6, 0, 0.1], shinL: [0.75, 0, 0], mouth: 0.8, hy: -0.08 }),
   },
 } satisfies Record<string, AttackAnim>);
+/** The same pose with the hands this far closed (left, right). */
+const hands = (p: Pose, l: number, r = l): Pose => { const o = new Float32Array(p); o[EX_GRIPL] = l; o[EX_GRIPR] = r; return o; };
+const openHands = (k: string, wind: [number, number], hit: [number, number], follow = hit) => {
+  const a = H_ATTACKS[k];
+  H_ATTACKS[k] = { ...a, wind: hands(a.wind, ...wind), hit: hands(a.hit, ...hit), follow: a.follow && hands(a.follow, ...follow) };
+};
+// moves done with an open hand: chops, pushes, grabs, spells; a throw lets go of what it throws
+openHands('chops', [0, 0], [0, 0]);
+openHands('meditate', [0.1, 0.1], [0.1, 0.1], [1, 1]);
+openHands('reflect', [0.3, 0.3], [0, 0]);
+openHands('hypno', [0.1, 0.1], [0, 0]);
+openHands('grab', [0.15, 0.15], [0.9, 0.9]);
+openHands('throw', [0.15, 0.15], [0.9, 0.9]);
+openHands('summon', [0.3, 1], [0.1, 1]);
+openHands('point', [0.4, 1], [0.25, 1]);
+openHands('swap', [1, 0.3], [1, 0.1]);
+openHands('scream', [0.6, 0.6], [0.15, 0.15]);
+openHands('yawn', [0.3, 0.3], [0.3, 0.3]);
+openHands('throw_', [1, 0.9], [1, 0.15]);
+openHands('lob', [1, 0.9], [1, 0.2]);
 H_ATTACKS.toss = H_ATTACKS.throw_;
 H_ATTACKS.straightSp = H_ATTACKS.straight;
 
 export const HUMAN: PoseLib = {
   GUARD: H_GUARD,
   CROUCH: humanize(CROUCH), BLOCK: humanize(BLOCK), BLOCK_CROUCH: humanize(BLOCK_CROUCH), JUMP: humanize(JUMP),
-  HIT_HIGH: humanize(HIT_HIGH), HIT_MID: humanize(HIT_MID), AIR_HIT, LYING, GETUP,
-  DIZZY: humanize(DIZZY),
+  HIT_HIGH: hands(humanize(HIT_HIGH), 0.7), HIT_MID: humanize(HIT_MID), AIR_HIT: hands(AIR_HIT, 0.5), LYING: hands(LYING, 0.45), GETUP,
+  DIZZY: hands(humanize(DIZZY), 0.4),
   // both fists up in a V
   WIN: makePose({
     spine: [-0.08, 0, 0], chest: [-0.08, 0, 0], head: [-0.18, 0, 0],
@@ -453,14 +476,14 @@ export const HUMAN: PoseLib = {
   TAUNT: makePose({
     spine: [-0.04, 0.2, 0], head: [-0.06, -0.25, 0.06],
     armL: [-1.25, 0, 0.15], foreL: [-0.75, 0, 0], armR: [0.25, 0, -0.55], foreR: [-1.5, 0, 0],
-    thighL: [-0.16, 0, 0.12], shinL: [0.12, 0, 0], thighR: [0.1, 0, -0.14], shinR: [0.14, 0, 0], mouth: 0.6,
+    thighL: [-0.16, 0, 0.12], shinL: [0.12, 0, 0], thighR: [0.1, 0, -0.14], shinR: [0.14, 0, 0], mouth: 0.6, grip: [0.1, 0.7],
   }),
   // relaxed, squared up to the camera, arms loose and a little away from the body (hanging straight down, a
   // sleeve modelled with the arm raised bunches up into a shoulder pad)
   STAND: makePose({
     spine: [-0.02, 0, 0], chest: [-0.04, 0, 0], head: [-0.02, 0, 0],
     armL: [0.06, 0, 0.44], foreL: [-0.3, 0, 0], armR: [0.06, 0, -0.44], foreR: [-0.3, 0, 0],
-    thighL: [-0.02, 0, 0.09], shinL: [0.04, 0, 0], thighR: [0.02, 0, -0.09], shinR: [0.04, 0, 0],
+    thighL: [-0.02, 0, 0.09], shinL: [0.04, 0, 0], thighR: [0.02, 0, -0.09], shinR: [0.04, 0, 0], grip: 0.25,
   }),
   DASH_F: hg({ spine: [0.3, 0.1, 0], head: [-0.2, 0, 0], thighL: [-1.0, 0, 0.1], shinL: [0.6, 0, 0], thighR: [0.8, 0, -0.1], shinR: [0.9, 0, 0], hy: -0.1 }),
   DASH_B: hg({ spine: [-0.15, 0, 0], thighL: [-0.5, 0, 0.1], shinL: [1.1, 0, 0], thighR: [-0.2, 0, -0.1], shinR: [0.9, 0, 0], hy: 0.03 }),

@@ -8,6 +8,9 @@
 //   view   game (the match camera's angle, default) | front | side | back | <degrees of yaw>
 //   cols   poses per row (default 8)
 //   px     width of one cell in pixels (default 250)
+//   grip   force how closed the hands are (0 open .. 1 fist) instead of what each pose says
+//   zoom   magnify (e.g. 3) and aim at height `at` (metres) to look at hands or a face
+//   on     with zoom: keep this joint (handL, handR, head ...) in the middle of every cell
 //   shot   save the sheet to tools/shots/<shot>.jpg through the dev server
 import * as THREE from 'three';
 import { ROSTER, fighterIndex } from '../data/roster';
@@ -18,6 +21,7 @@ import { applyPose, buildRig } from '../render/rig';
 const q = new URLSearchParams(location.search);
 const ids = (q.get('id') ?? 'odedsvr').split(',');
 const view = q.get('view') ?? 'game';
+const zoom = Number(q.get('zoom') ?? 1), at = Number(q.get('at') ?? 1);
 const STATES = ['NEUTRAL', 'STAND', 'GUARD', 'CROUCH', 'BLOCK', 'BLOCK_CROUCH', 'JUMP', 'HIT_HIGH', 'HIT_MID', 'AIR_HIT', 'LYING', 'GETUP', 'DIZZY', 'WIN', 'WIN2', 'TAUNT'];
 const poseNames = (q.get('poses') ?? STATES.join(',')).split(',').filter(Boolean);
 const cols = ids.length > 1 ? poseNames.length : Number(q.get('cols') ?? 8);
@@ -67,15 +71,32 @@ async function main() {
   names.forEach((name, i) => {
     const rig = buildRig(ROSTER[fighterIndex(ids.length > 1 ? ids[Math.floor(i / cols)] : ids[0])], 0);
     LIB = rig.skin && q.get('lib') !== 'classic' ? P.HUMAN : P.CLASSIC;
-    const { pose, air } = resolve(name);
+    const [poseName, ownGrip] = name.split('~'); // GUARD~0.5 = that pose with the hands half closed
+    const { pose, air } = resolve(poseName);
     applyPose(rig, pose);
     if (rig.skin) {
       rig.skin.feetOnGround = !air && Math.abs(pose[P.J.hips * 3]) < 0.7;
+      const grip = ownGrip ?? q.get('grip');
+      rig.skin.grip[0] = grip != null ? Number(grip) : pose[P.EX_GRIPL];
+      rig.skin.grip[1] = grip != null ? Number(grip) : pose[P.EX_GRIPR];
       rig.skin.update(0);
     }
     const col = i % cols, row = Math.floor(i / cols);
     rig.root.position.set((col + 0.5) * cellW, (rows - 1 - row) * cellH + 0.12 + (air ? 0.25 : 0), 0);
+    if (zoom !== 1) {
+      rig.root.scale.setScalar(zoom);
+      rig.root.position.y = (rows - 1 - row) * cellH + cellH * 0.45 - at * zoom;
+      rig.root.position.x -= Number(q.get('dx') ?? 0) * zoom; // look this far to the side of the body's middle (metres, on screen)
+    }
     rig.root.rotation.y = yaw;
+    const on = q.get('on') as P.JointName | null; // put this joint (handL, head ...) in the middle of the cell
+    const bone = on && rig.skin ? (rig.skin as unknown as { bones: THREE.Object3D[] }).bones[P.J[on]] : null;
+    if (bone) {
+      rig.root.updateMatrixWorld(true);
+      const w = bone.getWorldPosition(new THREE.Vector3());
+      rig.root.position.x += (col + 0.5) * cellW - w.x;
+      rig.root.position.y += (rows - 1 - row) * cellH + cellH * 0.42 - w.y;
+    }
     scene.add(rig.root);
     ((window as unknown as { rigs: unknown[] }).rigs ??= []).push(rig);
     const line = new THREE.Mesh(new THREE.PlaneGeometry(cellW * 0.9, 0.012), new THREE.MeshBasicMaterial({ color: '#566' }));
@@ -92,7 +113,35 @@ async function main() {
     scene.add(lab);
   });
   void grid;
-  renderer.render(scene, cam);
+  // one cell at a time, each fighter clipped to its own cell (zoomed in they are wider than a cell)
+  const roots = (window as unknown as { rigs: { root: THREE.Object3D }[] }).rigs.map((r) => r.root);
+  const mat = q.get('mat'); // double = both sides of every face | wire = the mesh itself | back = back faces in red
+  if (mat) {
+    for (const root of roots) {
+      root.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+        if (!m || !(o as THREE.SkinnedMesh).isSkinnedMesh) return;
+        if (mat === 'double') m.side = THREE.DoubleSide;
+        if (mat === 'wire') { m.wireframe = true; m.side = THREE.DoubleSide; }
+        if (mat === 'back') {
+          const b = new THREE.SkinnedMesh((o as THREE.SkinnedMesh).geometry, new THREE.MeshBasicMaterial({ color: '#f02', side: THREE.BackSide }));
+          b.bind((o as THREE.SkinnedMesh).skeleton, (o as THREE.SkinnedMesh).bindMatrix);
+          b.frustumCulled = false;
+          o.parent!.add(b);
+        }
+      });
+    }
+  }
+  renderer.autoClear = false;
+  renderer.clear();
+  renderer.setScissorTest(true);
+  roots.forEach((root, i) => {
+    for (const r of roots) r.visible = r === root;
+    const col = i % cols, row = Math.floor(i / cols);
+    renderer.setScissor(Math.round((col * W) / cols), Math.round(((rows - 1 - row) * H) / rows), Math.round(W / cols), Math.round(H / rows));
+    renderer.render(scene, cam);
+  });
+  renderer.setScissorTest(false);
   const shot = q.get('shot');
   if (shot) {
     await fetch('/__shot?name=' + encodeURIComponent(shot), { method: 'POST', body: renderer.domElement.toDataURL('image/jpeg', 0.9) });

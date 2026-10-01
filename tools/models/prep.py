@@ -65,6 +65,53 @@ for o in parts:  # bake transforms, drop the ROOT empty
 for o in [o for o in scene.objects if o.type != 'MESH']:
     bpy.data.objects.remove(o)
 
+# Parts edited by hand in Tripo (fingers cut loose so the hand can close) leave odds and ends: a "part" that is
+# really a few scraps in different places, and parts of a triangle or two. Scraps far from each other become parts
+# of their own; crumbs are thrown away.
+_tris = lambda o: sum(len(p.vertices) - 2 for p in o.data.polygons)
+_total = sum(_tris(o) for o in parts)
+_height = max((o.matrix_world @ v.co).z for o in parts for v in o.data.vertices)
+for o in list(parts):
+    n = _tris(o)
+    if n < 40:
+        print('@@ dropped crumb', o.name, n, flush=True)
+        parts.remove(o)
+        bpy.data.objects.remove(o)
+        continue
+    size = max(o.dimensions)
+    if n > 0.015 * _total or size < 0.25 * _height:
+        continue
+    for q in scene.objects:
+        q.select_set(q is o)
+    bpy.context.view_layer.objects.active = o
+    bpy.ops.mesh.separate(type='LOOSE')
+    bits = [q for q in scene.objects if q.select_get()]
+    centre = {q.name: sum((Vector(c) for c in q.bound_box), Vector()) / 8 for q in bits}
+    groups = []  # scraps closer than a twentieth of the body's height stay together
+    for q in sorted(bits, key=lambda q: -_tris(q)):
+        home = next((g for g in groups if any((centre[q.name] - centre[r.name]).length < 0.05 * _height for r in g)), None)
+        if home is not None:
+            home.append(q)
+        else:
+            groups.append([q])
+    parts.remove(o)
+    kept = 0
+    for g in groups:
+        if sum(_tris(q) for q in g) < 40:
+            for q in g:
+                bpy.data.objects.remove(q)
+            continue
+        for q in scene.objects:
+            q.select_set(q in g)
+        bpy.context.view_layer.objects.active = g[0]
+        if len(g) > 1:
+            bpy.ops.object.join()
+        g[0].name = f'{o.name}_{chr(97 + kept)}' if kept else o.name
+        parts.append(g[0])
+        kept += 1
+    print('@@ split scattered part', o.name, 'into', kept, flush=True)
+parts.sort(key=lambda o: o.name)
+
 
 def verts_gl(o):
     n = len(o.data.vertices)
@@ -195,6 +242,15 @@ for side in ('L', 'R'):
                 p.cls, p.side = 'arm', side
             else:
                 p.cls = 'torso2'
+# a hand cut into palm and fingers is a string of small parts: whatever hangs on an arm is arm
+limb = {p.name for p in P if p.cls == 'arm'}  # the arm proper: sleeve, forearm
+front = [p for p in P if p.cls == 'arm']
+while front:
+    cur = front.pop()
+    for p in P:
+        if p.cls == 'acc' and iface(cur, p):
+            p.cls, p.side = 'arm', cur.side
+            front.append(p)
 for name, cls in OVR.get('parts', {}).items():  # manual fixes
     p = byname[name]
     if cls in ('armL', 'armR'):
@@ -204,8 +260,48 @@ for name, cls in OVR.get('parts', {}).items():  # manual fixes
 for p in P:
     log(f'part {p.name:20s} {p.cls:8s}{p.side or " "} tris={p.tris:7d} c=({p.c[0]:+.3f},{p.c[1]:.3f},{p.c[2]:+.3f})')
 
+# ------------------------------------------------------------------ hands with fingers cut loose
+# Fingers that are parts of their own tell where each finger is, which is what closing the hand needs. But cut
+# apart they would each be simplified on their own and no longer meet the palm; so the pieces are remembered (a
+# cloud of points each) and welded back onto the palm: one hand, one skin.
+FINGERS, finger_pts = {}, {}
+for side in ('L', 'R'):
+    small = [p for p in P if p.cls == 'arm' and p.side == side and p.name not in limb]
+    palms = [p for p in small if any(iface(p, q) for q in P if q.name in limb)]
+    if not palms or len(small) < 2:
+        continue
+    palm = max(palms, key=lambda p: p.tris)
+    pieces = [p for p in small if p is not palm and iface(palm, p)]
+    if not pieces:
+        continue
+    FINGERS[palm.name] = []
+    for k, q in enumerate(pieces):
+        key = f'finger_{side}{k}'
+        finger_pts[key] = q.s.astype(np.float32)
+        FINGERS[palm.name].append(key)
+    for o in scene.objects:
+        o.select_set(o is palm.o or any(o is q.o for q in pieces))
+    bpy.context.view_layer.objects.active = palm.o
+    bpy.ops.object.join()
+    bm = bmesh.new()
+    bm.from_mesh(palm.o.data)
+    n0 = len(bm.verts)
+    bmesh.ops.remove_doubles(bm, verts=[v for v in bm.verts if v.is_boundary], dist=1e-5)
+    left = sum(1 for e in bm.edges if e.is_boundary)
+    bm.to_mesh(palm.o.data)
+    bm.free()
+    for q in pieces:
+        P.remove(q)
+        del byname[q.name]
+    v = verts_gl(palm.o)
+    palm.tris = tri_count(palm.o)
+    palm.s = v[:: max(1, len(v) // 30000)]
+    palm.lo, palm.hi, palm.c = v.min(0), v.max(0), v.mean(0)
+    palm.fingers = True
+    log(f'hand {side}: {len(pieces)} finger pieces welded onto {palm.name} ({n0 - len(palm.o.data.vertices)} vertices merged, {left} rim edges left)')
+
 # ------------------------------------------------------------------ decimate
-budget_w = {p.name: (p.tris ** 0.8) * (2.6 if p.cls == 'head' else 1.25 if p.cls == 'arm' else 1.0) for p in P}
+budget_w = {p.name: (p.tris ** 0.8) * (2.6 if p.cls == 'head' else 2.4 if getattr(p, 'fingers', False) else 1.25 if p.cls == 'arm' else 1.0) for p in P}
 bw = sum(budget_w.values())
 for p in P:
     want = max(1200, TARGET_TRIS * budget_w[p.name] / bw)
@@ -258,9 +354,10 @@ def mean_channels(img):
 
 
 used = set()
-for p in P:
-    o = p.o
-    old = o.data.materials[0] if o.data.materials else None
+
+
+def light_material(old, name, big):
+    """The same material with its textures scaled down for the game."""
     base = nrm = rm = None
     if old and old.use_nodes:
         bsdf = next((n for n in old.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
@@ -271,10 +368,9 @@ for p in P:
     rough = 0.6
     if rm:
         rough = float(np.clip(mean_channels(rm)[1], 0.3, 0.95))
-    big = p.cls in ('head', 'torso')
     shrink(base, 1024 if big else 512)
     shrink(nrm, 512 if big else 256)
-    mat = bpy.data.materials.new('m_' + p.name.replace('tripo_part_', ''))
+    mat = bpy.data.materials.new(name)
     mat.use_nodes = True
     nt = mat.node_tree
     bsdf = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
@@ -293,11 +389,22 @@ for p in P:
         nt.links.new(t.outputs['Color'], nm.inputs['Color'])
         nt.links.new(nm.outputs['Normal'], bsdf.inputs['Normal'])
         used.add(nrm)
-    o.data.materials.clear()
-    o.data.materials.append(mat)
+    log(f'material {name:20s} base={tuple(base.size) if base else None} normal={tuple(nrm.size) if nrm else None} rough={rough:.2f}')
+    return mat
+
+
+for p in P:
+    o = p.o
+    stem = 'm_' + p.name.replace('tripo_part_', '')
+    olds = list(o.data.materials) or [None]
+    for i, old in enumerate(olds):
+        mat = light_material(old, stem if i == 0 else f'{stem}_{i}', p.cls in ('head', 'torso'))
+        if i < len(o.data.materials):
+            o.data.materials[i] = mat
+        else:
+            o.data.materials.append(mat)
     o['cls'] = p.cls
     o['side'] = p.side or ''
-    log(f'material {p.name:20s} base={tuple(base.size) if base else None} normal={tuple(nrm.size) if nrm else None} rough={rough:.2f}')
 
 # ------------------------------------------------------------------ cache
 os.makedirs(CACHE, exist_ok=True)
@@ -310,10 +417,11 @@ for block in (bpy.data.materials, bpy.data.meshes):
     for item in list(block):
         if item.users == 0:
             block.remove(item)
-np.savez_compressed(os.path.join(CACHE, NAME + '.npz'), **{p.name: p.s.astype(np.float32) for p in P})
+np.savez_compressed(os.path.join(CACHE, NAME + '.npz'), **{p.name: p.s.astype(np.float32) for p in P}, **finger_pts)
 meta = {
     'height': float(H),
     'parts': {p.name: {'cls': p.cls, 'side': p.side, 'tris': p.tris, 'lo': p.lo.tolist(), 'hi': p.hi.tolist()} for p in P},
+    'fingers': FINGERS,  # hand part -> the point clouds (in the .npz) of the finger pieces welded onto it
     'interfaces': [{'a': a, 'b': b, 'c': f['c'].tolist(), 'r': f['r'], 'n': f['n']} for (a, b), f in IF.items() if a < b],
 }
 with open(os.path.join(CACHE, NAME + '.json'), 'w', encoding='utf8') as f:

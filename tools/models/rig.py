@@ -158,6 +158,7 @@ def fill_holes(o):
     bm.from_mesh(me)
     mark = bm.verts.layers.int.new('patch')  # (a new layer invalidates element references: make it first)
     rimn = bm.verts.layers.float_vector.new('rimn')
+    lid = bm.faces.layers.int.new('lid')  # the faces made here, so a later stage can take some away again
     uv = bm.loops.layers.uv.active
     n_rim = sum(1 for e in bm.edges if e.is_boundary)
     if not n_rim:
@@ -246,6 +247,9 @@ def fill_holes(o):
             bmesh.ops.smooth_vert(bm, verts=inside, factor=0.5, use_axis_x=True, use_axis_y=True, use_axis_z=True)
     for v in inside:  # patch vertices take their skin weights from the rim (see compute_weights)
         v[mark] = 1
+    for f in capset:
+        if f.is_valid:
+            f[lid] = 1
     n = len(capset)
     left = sum(1 for e in bm.edges if e.is_boundary)
     print('@@ holes', o.name, 'rim edges', n_rim, '->', left, 'patch faces', n, flush=True)
@@ -872,13 +876,12 @@ for s in 'LR':
         inner = sorted([q for q in line if 0.03 * span < (q - S) @ ax < 0.97 * span], key=lambda q: float((q - S) @ ax))
         path = np.vstack([S] + inner + [T])
         t_w = 0.755
-        last = max(comp, key=lambda q: float(((q.s - S) @ ax).max()))  # the part the arm ends with: the hand, if it is its own part
-        for q in comp:
-            f = iface(last, q) if q is not last else None
-            if f:
-                tq = float(((f['c'] - S) @ ax) / ((T - S) @ ax))
-                if 0.62 < tq < 0.88:
-                    t_w = tq
+        # a cut between two parts near where the wrist should be is the wrist (hand as its own part); the cuts
+        # further out are the fingers'
+        cuts = [float(((f['c'] - S) @ ax) / ((T - S) @ ax)) for i_, q in enumerate(comp) for r_ in comp[i_ + 1:] for f in [iface(q, r_)] if f]
+        cuts = [c for c in cuts if 0.62 < c < 0.82]
+        if cuts:
+            t_w = min(cuts, key=lambda c: abs(c - 0.74))
         W = along(path, t_w)
         E = along(path, t_w * 0.56)  # upper arm : forearm = 56 : 44
         J['arm' + s], J['fore' + s], J['hand' + s], J['tip' + s] = S, E, W, T
@@ -1318,6 +1321,8 @@ def round_limb_patches():
         W = W0[p.name]
         own_bone = W.argmax(1)
         for seg, nxt_ in ends.items():
+            if seg == 'hand' and STANDING:
+                continue  # an open hand is no tube, and the lids over its finger cuts must stay where they are
             for s in 'LR':
                 bi = BI[seg + s]
                 a, b = J[seg + s], J[nxt_ + s]
@@ -1559,6 +1564,242 @@ for p in P:
     p.o.vertex_groups.remove(p.o.vertex_groups['_mix'])
 
 ao = build_armature(NAME + '_rig', NP, NP['headTop'])
+
+# ------------------------------------------------------------------ fingers
+# A hand whose fingers are parts of their own (cut loose in Tripo) can close into a fist. Each finger piece gets
+# three bones of its own hanging off the hand bone, and its vertices bend with them by how far along the finger
+# they lie. (The thumb's first bone is inside the hand: the ball of the thumb turns with it.) The game turns every finger bone about its hinge by `angle` x grip (0 open .. 1 fist).
+FINGERS = []  # {'bone', 'parent', 'head', 'tail', 'axis', 'angle'}
+
+
+def turn(k, a, x):
+    """x turned about the unit axis k by the angle a."""
+    return x * math.cos(a) + np.cross(k, x) * math.sin(a) + k * (k @ x) * (1 - math.cos(a))
+
+
+def arc(a, b):
+    """The shortest turn that takes direction a to direction b: (axis, angle)."""
+    k = np.cross(a, b)
+    sn = float(np.linalg.norm(k))
+    if sn < 1e-6:
+        return norm(np.cross(a, np.array([0.0, 1.0, 0.0]))), 0.0
+    return k / sn, math.atan2(sn, float(a @ b))
+
+
+def rig_fingers():
+    for s, sg in (('L', 1.0), ('R', -1.0)):
+        hand = next((q for q in P if q.cls == 'arm' and q.side == s and q.name in meta.get('fingers', {})), None)
+        if hand is None:
+            continue
+        wrist, tip = NP['hand' + s], NP['tip' + s]
+        ax = norm(tip - wrist)
+        v = cur[hand.name]
+        to_rest = lambda x: NP['hand' + s] + (x - J['hand' + s]) @ D['hand' + s].T  # the hand moved as one piece
+        clouds = [to_rest(SAMPLES[k].astype(np.float64)) for k in meta['fingers'][hand.name]]
+        # which finger each vertex of the hand belongs to (-1 = the palm): the cloud it lies on
+        member = np.full(len(v), -1)
+        near = np.full(len(v), 0.004 * H)
+        dist = []
+        for k, c in enumerate(clouds):
+            tr = kd(c)
+            dk = np.array([tr.find(Vector(x))[2] for x in v])
+            dist.append(dk)
+            member = np.where(dk < near, k, member)
+            near = np.minimum(near, dk)
+        palm_v = v[member < 0]
+        pc = palm_v.mean(0)
+        n = np.linalg.svd(palm_v - pc, full_matrices=False)[2][2]
+        n = norm(n - ax * (n @ ax))
+        if n @ np.array([-sg * 0.7, -0.7, 0.0]) < 0:  # the palm faces down and in towards the body
+            n = -n
+        pieces = []
+        for k, c in enumerate(clouds):
+            cc = c.mean(0)
+            d = np.linalg.svd(c - cc, full_matrices=False)[2][0]
+            if d @ (cc - pc) < 0:
+                d = -d
+            t = (c - cc) @ d
+            pieces.append({'k': k, 'pts': c, 'd': d, 'base': cc + d * t.min(), 'len': float(t.max() - t.min()), 'off': float(math.acos(np.clip(d @ ax, -1, 1)))})
+        thumb = max(pieces, key=lambda f: f['off'])
+        if thumb['off'] < 0.4:
+            thumb = None
+        W = np.zeros((len(v), 0))
+        names_all, knuckles = [], []
+        across = norm(np.cross(ax, n))  # from one side of the hand to the other, along the knuckles
+        for order, f in enumerate(sorted(pieces, key=lambda f: float(f['base'] @ across))):
+            f['order'] = order
+        for f in sorted(pieces, key=lambda f: f is thumb):
+            order, c, d, L = f['order'], f['pts'], f['d'], f['len']
+            tc = (c - f['base']) @ d
+
+            def at(u0, u1):  # the middle of the finger between two stations along it
+                m = (tc >= u0 * L) & (tc <= u1 * L)
+                return c[m].mean(0) if m.sum() >= 3 else f['base'] + d * L * (u0 + u1) / 2
+
+            def thick(u0, u1):  # and how thick it is there
+                m = (tc >= u0 * L) & (tc <= u1 * L)
+                q = c[m] - c[m].mean(0)
+                return float(np.linalg.norm(q - np.outer(q @ d, d), axis=1).mean()) if m.sum() >= 3 else 0.008 * H
+
+            base_c = at(0.0, 0.1)
+            base_r = thick(0.0, 0.1)
+            t = (v - f['base']) @ d
+            e = 0.08 * L
+            mine = member == f['k']
+            w = np.zeros((len(v), 3))
+            if f is not thumb:
+                # The first joint is the knuckle, and the knuckle is in the hand, a little way back from where the
+                # finger was cut off: the finger turns about it as one, and the skin of the hand around it stretches.
+                back = 0.2 * L
+                cuts = [0.42, 0.72]
+                heads = [base_c - d * back] + [at(q - 0.05, q + 0.05) for q in cuts]
+                ends = heads[1:] + [at(0.93, 1.0) + d * 0.03 * L]
+                angles = OVR.get('fingerAngles', [1.45, 1.7, 0.95])
+                hinges = [norm(np.cross(d, n))] * 3  # the fingers curl towards the palm
+                f.update(heads=heads, hinge=hinges[0], angles=angles, r=thick(0.4, 0.75), base_c=base_c)
+                # along the finger each stretch hands over to the next around its joint
+                beyond = [smooth(q * L - e, q * L + e, t) for q in cuts]
+                w[:, 2] = beyond[1]
+                w[:, 1] = beyond[0] * (1 - beyond[1])
+                w[:, 0] = 1 - w[:, 1:].sum(1)
+                w[~mine] = 0
+                knuckles.append({'col': W.shape[1], 'thumb': False, 'u': float(base_c @ across), 'k': f['k'], 'band': 0.5 * back,
+                                 'along': smooth(-1.6 * back, -0.4 * back, t)})
+            else:
+                # The thumb has its first joint deep in the hand, near the wrist: the ball of the thumb turns about
+                # it, carrying the thumb across the palm. Then the thumb bends where it leaves the hand and once
+                # more half way along, and comes to rest on the curled fingers, on the back of their middle joints.
+                # Where that is follows from how the fingers curl; the three turns are the ones that take it there.
+                # The piece may have been cut off anywhere (with the whole ball of the thumb, or without), so the
+                # joints are measured back from the tip, in hand lengths, and not from the cut.
+                hl = float(np.linalg.norm(tip - wrist))
+                free = min(OVR.get('thumbFree', 0.36) * hl, L)  # from where the thumb leaves the hand to its tip
+                tm = L - free
+                ti = tm + 0.53 * free
+                M = at(max(tm / L - 0.04, 0.0), tm / L + 0.04)
+                IP, T = at(ti / L - 0.05, ti / L + 0.05), at(0.93, 1.0) + d * 0.03 * L
+                lm = 0.26 * hl
+                C = M - d * lm
+                low = float((C - wrist) @ ax)
+                if low < 0.06 * hl:  # not behind the wrist
+                    C = C + d * min((0.06 * hl - low) / max(float(d @ ax), 0.2), 0.7 * lm)
+                heads, ends = [C, M, IP], [M, IP, T]
+
+                def rest_on(g):
+                    K, Pp, Dp = g['heads']
+                    h, (a0, a1) = g['hinge'], g['angles'][:2]
+                    P1 = K + turn(h, a0, Pp - K)
+                    D1 = P1 + turn(h, a0 + a1, Dp - Pp)
+                    return (P1 + D1) / 2 + turn(h, a0 + a1, -n) * (g['r'] + 0.9 * thick(0.6, 0.9))
+
+                others = sorted((g for g in pieces if g is not thumb), key=lambda g: float(np.linalg.norm(g['base_c'] - base_c)))
+                if others:
+                    # 0 = onto the first finger, 1 = onto the second
+                    onto = lambda r: rest_on(others[0]) if len(others) < 2 else rest_on(others[0]) * (1 - r) + rest_on(others[1]) * r
+                    k1, full = arc(norm(M - C), norm(onto(0.5) - C))
+                    a1 = min(OVR.get('thumbSwing', 0.5) * full, 0.6)
+                    M1 = C + turn(k1, a1, M - C)
+                    la, lb = float(np.linalg.norm(IP - M)), float(np.linalg.norm(T - IP))
+                    # as far across the fingers as it reaches without straightening out
+                    away = lambda r: float(np.linalg.norm(onto(r) - M1))
+                    rs = [OVR['thumbReach']] if 'thumbReach' in OVR else list(np.linspace(0.3, 1.0, 8))
+                    within = [r for r in rs if away(r) <= 0.95 * (la + lb)]
+                    tgt = onto(max(within, key=away) if within else min(rs, key=away))
+                    u = norm(tgt - M1)
+                    far = min(float(np.linalg.norm(tgt - M1)), 0.985 * (la + lb))
+                    x = (la * la - lb * lb + far * far) / (2 * far)
+                    y = math.sqrt(max(la * la - x * x, 0.0))
+                    inward = across * (1.0 if (pc - base_c) @ across > 0 else -1.0)
+                    pole = norm(0.6 * ax - 0.7 * inward + 0.4 * n)  # the thumb's middle joint stands out, away from the fingers
+                    Pb = M1 + u * x + norm(pole - u * (pole @ u)) * y
+                    k2, a2 = arc(turn(k1, a1, norm(IP - M)), norm(Pb - M1))
+                    k3, a3 = arc(turn(k2, a2, turn(k1, a1, norm(T - IP))), norm(M1 + u * far - Pb))
+                    hinges = [k1, turn(k1, -a1, k2), turn(k1, -a1, turn(k2, -a2, k3))]
+                    angles = [a1, a2, a3]
+                    log(f'thumb {s}: {L / H:.3f}H long ({free / H:.3f}H of it free, hand {hl / H:.3f}H), turns {a1:.2f} {a2:.2f} {a3:.2f}, tip {float(np.linalg.norm(tgt - M1)) / (la + lb):.2f} of its reach away')
+                else:
+                    hinges, angles = [ax * (1.0 if np.cross(ax, d) @ n > 0 else -1.0)] * 2 + [n * (1.0 if np.cross(n, d) @ ax > 0 else -1.0)], [0.5, 0.6, 1.0]
+                # everything by where it is along the thumb, the hand's own skin around it included: nothing opens
+                # where the thumb was cut off
+                e2 = 0.12 * free
+                sb, sc = smooth(tm - e2, tm + e2, t), smooth(ti - e2, ti + e2, t)
+                tC = float((C - f['base']) @ d)
+                fade = smooth(tC - 0.1 * (tm - tC), tC + 0.5 * (tm - tC), t)  # nothing moves at the wrist
+                w[:, 0], w[:, 1], w[:, 2] = (1 - sb) * fade, sb * (1 - sc) * fade, sb * sc * fade
+                w[~mine] = 0
+                seg = M - C
+                q = np.clip(((v - C) @ seg) / (seg @ seg), 0.0, 1.0)
+                far_ = np.linalg.norm(v - (C + np.outer(q, seg)), axis=1)
+                r_m = thick(tm / L, tm / L + 0.1)
+                knuckles.append({'col': W.shape[1], 'thumb': True, 'k': f['k'], 'band': 0.25 * free, 'sb': sb, 'sc': sc, 'fade': fade,
+                                 'thenar': 1 - smooth(1.0 * r_m, 2.6 * r_m, far_)})
+            names = [f'f{s}{order}{"abc"[i]}' for i in range(len(heads))]
+            for i, nm in enumerate(names):
+                FINGERS.append({'bone': nm, 'parent': names[i - 1] if i else 'hand' + s, 'head': heads[i], 'tail': ends[i],
+                                'axis': hinges[i], 'angle': round(float(angles[i]), 4)})
+            W = np.concatenate([W, w], axis=1)
+            names_all += names
+        # The skin of the hand right next to a finger goes wholly with that finger, wherever the finger was cut
+        # off (so nothing opens along the cut). Further in, the four knuckles are one hinge line across the hand:
+        # a vertex follows the finger it lies behind, shared between two neighbours by where it lies between them,
+        # so the back of the hand bends as a sheet. The thumb takes the ball of the thumb, by nearness.
+        palm_m = member < 0
+        hold = np.stack([1 - smooth(0.004 * H, 0.004 * H + kn['band'], dist[kn['k']]) for kn in knuckles], axis=1)
+        hold /= np.maximum(hold.sum(1), 1.0)[:, None]
+        sheet = np.zeros_like(hold)
+        row = sorted([j for j, kn in enumerate(knuckles) if not kn['thumb']], key=lambda j: knuckles[j]['u'])
+        u = v @ across
+        for i, j in enumerate(row):
+            kn = knuckles[j]
+            lo = knuckles[row[i - 1]]['u'] if i else -1e9
+            hi = knuckles[row[i + 1]]['u'] if i + 1 < len(row) else 1e9
+            lat = np.where(u < kn['u'], smooth(lo, kn['u'], u) if i else 1.0, 1 - smooth(kn['u'], hi, u) if i + 1 < len(row) else 1.0)
+            sheet[:, j] = kn['along'] * lat
+        for j, kn in enumerate(knuckles):
+            if kn['thumb']:
+                sheet[:, j] = np.minimum(kn['thenar'], 1 - sheet.sum(1))
+        room = 1 - hold.sum(1)
+        for j, kn in enumerate(knuckles):
+            mine = (hold[:, j] + room * sheet[:, j]) * (kn['fade'] if kn['thumb'] else 1.0)
+            parts = [1 - kn['sb'], kn['sb'] * (1 - kn['sc']), kn['sb'] * kn['sc']] if kn['thumb'] else [1.0]
+            for i, part in enumerate(parts):
+                W[:, kn['col'] + i] = np.where(palm_m, mine * part, W[:, kn['col'] + i])
+        share = np.clip(W.sum(1), 0, 1)
+        o = hand.o
+        gname = {g.index: g.name for g in o.vertex_groups}
+        groups = {}
+        for i in np.nonzero(share > 0.02)[0]:
+            i = int(i)
+            for ge in list(o.data.vertices[i].groups):
+                if share[i] > 0.98:
+                    o.vertex_groups[gname[ge.group]].remove([i])
+                else:
+                    o.vertex_groups[gname[ge.group]].add([i], ge.weight * float(1 - share[i]), 'REPLACE')
+            for j in np.nonzero(W[i] > 0.01)[0]:
+                nm = names_all[int(j)]
+                if nm not in groups:
+                    groups[nm] = o.vertex_groups.new(name=nm)
+                groups[nm].add([i], float(W[i, j]), 'REPLACE')
+        log(f'fingers {s}: {len(pieces)} pieces' + (', thumb is one of them' if thumb else ', thumb is part of the palm') +
+            f'; {int((member >= 0).sum())} finger and {int((palm_m & (share > 0.02)).sum())} knuckle vertices of {len(v)}')
+    if not FINGERS:
+        return
+    bpy.context.view_layer.objects.active = ao
+    for q in scene.objects:
+        q.select_set(q is ao)
+    bpy.ops.object.mode_set(mode='EDIT')
+    for f in FINGERS:
+        e = ao.data.edit_bones.new(f['bone'])
+        e.head = to_bl(f['head'])
+        tail = to_bl(f['tail'])
+        e.tail = tail if (tail - e.head).length > 1e-4 else e.head + Vector((0, 0, 0.01 * H))
+        e.parent = ao.data.edit_bones[f['parent']]
+        e.use_connect = False
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+
+if OVR.get('fingers', True):
+    rig_fingers()
 for p in P:
     p.o.parent = ao
     m = p.o.modifiers.new('rig', 'ARMATURE')
@@ -1573,6 +1814,8 @@ ao['skrig'] = json.dumps({
     'headTop': r4(NP['headTop']),
     'sole': 0,
     'radii': {k: round(float(v), 4) for k, v in radii_n.items()},
+    # finger bones (children of the hand bones): turn each about `axis` (model space, rest pose) by angle x grip
+    'fingers': [{'bone': f['bone'], 'axis': r4(f['axis']), 'angle': f['angle']} for f in FINGERS],
 })
 
 # ------------------------------------------------------------------ debug renders

@@ -321,6 +321,8 @@ export class ProceduralFighterView implements FighterVisual {
     if (skin) {
       // feet carry the body unless it is airborne or rolled over (lying, slides, rolls)
       skin.feetOnGround = f.y <= 0 && Math.abs(tmp2[P.J.hips * 3]) < 0.7;
+      skin.grip[0] = tmp2[P.EX_GRIPL];
+      skin.grip[1] = tmp2[P.EX_GRIPR];
       skin.update(dt);
     }
   }
