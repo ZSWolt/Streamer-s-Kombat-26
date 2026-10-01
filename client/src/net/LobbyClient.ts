@@ -1,8 +1,30 @@
 type Handler = (m: any) => void;
 
+const SERVER_KEY = 'sk_server';
+
+/** Address of the host's lobby server: ?server=… in the link, or one the player pasted earlier in this tab. */
+export function serverOverride(): string {
+  const q = new URLSearchParams(location.search).get('server');
+  if (q) return q;
+  try { return sessionStorage.getItem(SERVER_KEY) ?? ''; } catch { return ''; }
+}
+
+/** Accepts a full invite link or a bare server address. Returns false when it is neither. */
+export function setServerFromInvite(text: string): boolean {
+  const t = text.trim();
+  if (!/^https?:\/\//i.test(t)) return false;
+  let server = t;
+  try {
+    const u = new URL(t);
+    server = u.searchParams.get('server') ?? u.origin;
+  } catch { return false; }
+  try { sessionStorage.setItem(SERVER_KEY, server); } catch { /* private mode */ }
+  return true;
+}
+
 export function serverWsUrl(): string {
-  const override = new URLSearchParams(location.search).get('server');
-  if (override) return override.replace(/^http/, 'ws') + '/ws';
+  const override = serverOverride();
+  if (override) return override.replace(/\/+$/, '').replace(/^http/, 'ws') + '/ws';
   // dev server (vite) runs on 5173; the game server on 7777
   if (location.port === '5173') return `ws://${location.hostname}:7777/ws`;
   return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
@@ -23,7 +45,8 @@ export class LobbyClient {
       const ws = new WebSocket(serverWsUrl());
       this.ws = ws;
       const to = setTimeout(() => { reject(new Error('timeout')); ws.close(); }, 6000);
-      ws.onopen = () => { ws.send(JSON.stringify({ t: 'hello', name })); };
+      const hk = new URLSearchParams(location.search).get('hk') ?? undefined;
+      ws.onopen = () => { ws.send(JSON.stringify({ t: 'hello', name, hk })); };
       ws.onmessage = (ev) => {
         const m = JSON.parse(ev.data);
         if (m.t === 'welcome') {

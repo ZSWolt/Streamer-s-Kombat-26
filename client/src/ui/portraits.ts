@@ -47,20 +47,22 @@ export async function generatePortraits(onProgress?: (p: number) => void) {
     const f = ROSTER[i];
     for (let s = 0; s < f.skins.length; s++) {
       const rig = buildRig(f, s);
-      applyPose(rig, pose);
+      // real models are shown in their own sculpted stance
+      applyPose(rig, rig.skin ? P.GUARD : pose);
+      if (rig.skin) { rig.skin.absolute = 0; rig.skin.update(0); }
       rig.root.rotation.y = -0.35;
       scene.add(rig.root);
       rig.root.updateMatrixWorld(true);
       const headPos = new THREE.Vector3();
-      rig.headBob.getWorldPosition(headPos);
-      headPos.y += 0.26 * f.look.height;
+      rig.faceAnchor.getWorldPosition(headPos);
+      const k = rig.headSize / (0.3 * f.look.height); // real models have smaller heads than the bobbleheads: move in
       // card: head + upper body
       r.setSize(W, H, false);
       cam.aspect = W / H;
       cam.fov = 24;
       cam.updateProjectionMatrix();
-      cam.position.set(0.25, headPos.y - 0.05, 3.1);
-      cam.lookAt(0, headPos.y - 0.28, 0);
+      cam.position.set(headPos.x + 0.25 * k, headPos.y - 0.05 * k, headPos.z + 3.1 * k);
+      cam.lookAt(headPos.x, headPos.y - 0.28 * k, headPos.z);
       r.setClearColor(0x000000, 0);
       r.render(scene, cam);
       cache.set(`${i}:card:${s}`, canvas.toDataURL('image/png'));
@@ -69,8 +71,8 @@ export async function generatePortraits(onProgress?: (p: number) => void) {
       cam.aspect = 1;
       cam.fov = 22;
       cam.updateProjectionMatrix();
-      cam.position.set(0.15, headPos.y + 0.02, 2.0);
-      cam.lookAt(0, headPos.y - 0.05, 0);
+      cam.position.set(headPos.x + 0.15 * k, headPos.y + 0.02 * k, headPos.z + 2.0 * k);
+      cam.lookAt(headPos.x, headPos.y - 0.05 * k, headPos.z);
       r.render(scene, cam);
       cache.set(`${i}:icon:${s}`, canvas.toDataURL('image/png'));
       scene.remove(rig.root);

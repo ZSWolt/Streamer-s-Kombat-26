@@ -41,7 +41,7 @@ export interface Fighter {
   he: string; // Hebrew name
   title: string; // THE ...
   titleHe: string;
-  platform: 'kick' | 'youtube';
+  platform: 'kick' | 'youtube' | 'guest';
   channel: string;
   accent: string;
   stage: number;
@@ -78,7 +78,7 @@ export const ROSTER: Fighter[] = [
     accent: '#53fc18', stage: 0, stats: [3, 3, 3, 3],
     look: { skin: '#c89478', hair: '#1e1712', hairStyle: 'wavy', beard: 'full', headphones: '#131313', shirt: '#151515', shirtText: 'STAY AWESOME', pants: '#24242c', shoes: '#f0f0f0', build: 'normal', height: 1 },
     specials: [
-      sp('U', 'מחסני חשמל', 'APPLIANCE TOSS', 'throw', shot({ vfx: 'microwave', damage: 80, speed: 72, size: [420, 420] })),
+      sp('U', 'קונקארדס', 'CONCARDS ATTACK', 'throw', shot({ vfx: 'concards', damage: 34, count: 3, spread: 22, speed: 84, size: [300, 380] })),
       sp('FU', 'בוסטר', 'BOOSTER', 'shoulder', rush({ vfx: 'booster', damage: 90, speed: 112, active: 14 })),
       sp('DU', 'בושות!', 'SHAME UPPER', 'uppercut', upper({ vfx: 'shame', damage: 100 })),
     ],
@@ -91,9 +91,9 @@ export const ROSTER: Fighter[] = [
     accent: '#53fc18', stage: 3, stats: [3, 4, 5, 2],
     look: { skin: '#d2a07e', hair: '#1b1510', hairStyle: 'short', beard: 'trim', headphones: '#f4f4f4', shirt: '#f1f1f1', hoodie: true, pants: '#2a2a2e', shoes: '#ffffff', build: 'normal', height: 1.02 },
     specials: [
-      sp('U', "רייג' בייט", 'RAGE BAIT', 'counter', { kind: 'counter', startup: 3, active: 36, recovery: 22, damage: 110, hitstun: 30, knockdown: true, vfx: 'ragebait' }),
+      sp('U', "ז'יטונים", 'GAMBLE ATTACK', 'throw', shot({ vfx: 'chips', damage: 21, randomDamage: [6, 36], count: 4, spread: 16, speed: 90, size: [240, 240] })),
       sp('FU', 'Keep Moving Forward', 'KEEP MOVING FORWARD', 'straight', rush({ vfx: 'armor', damage: 100, speed: 92, armor: 1, knockdown: true })),
-      sp('DU', 'סיקור דרמות', 'DRAMA REPORT', 'throw', shot({ vfx: 'tornado', damage: 35, hits: 2, speed: 55, size: [520, 1100], life: 150 })),
+      sp('DU', 'סאבטון', 'SUBATHON ATTACK', 'point', { kind: 'drop', startup: 20, recovery: 24, damage: 105, knockdown: true, size: [760, 560], vfx: 'subathon', hitstun: 30 }),
     ],
     hype: { name: '80K', en: '80K RUSH', vfx: 'rocky' },
     intro: "It's about how hard you can get hit.", win: 'פרשן הדרמות הכי טוב בעולם.',
@@ -104,7 +104,7 @@ export const ROSTER: Fighter[] = [
     accent: '#ff2a2a', stage: 4, stats: [3, 4, 3, 4],
     look: { skin: '#c9936f', hair: '#191310', hairStyle: 'curly', beard: 'trim', headphones: '#141414', headphonesAccent: '#27a6ff', shirt: '#1f6fd1', shirtText: '25', pants: '#2d3f5a', shoes: '#f5f5f5', build: 'normal', height: 1.03 },
     specials: [
-      sp('U', 'אוזניות אינדה', 'INDE HEADSET', 'throw', shot({ vfx: 'headset', damage: 60, speed: 82, boomerang: true, life: 80, pierce: false })),
+      sp('U', 'מוצרי אינדה', 'INDE ATTACK', 'throw', shot({ vfx: 'indegear', damage: 34, count: 3, spread: 20, speed: 82, size: [300, 300] })),
       sp('FU', '0 צופים', 'ZERO VIEWERS', 'teleport', { kind: 'teleport', startup: 16, recovery: 12, damage: 0, behind: true, vfx: 'teleport' }),
       sp('DU', 'שלישיית הנובים', 'NOOB TRIO', 'summon', { kind: 'summon', startup: 18, recovery: 30, damage: 90, speed: 62, size: [700, 1500], knockdown: true, life: 140, hitstun: 30, level: 'mid', vfx: 'noobs' }),
     ],
@@ -293,6 +293,32 @@ export const ROSTER: Fighter[] = [
     hype: { name: '10,000 ₪', en: 'PINK MONEY RAIN', vfx: 'pinkmoney' },
     intro: 'תענה על השאלה או שתיפול!', win: 'המלכה של סולטיז.',
     skins: defaultSkins('#ff2a2a'),
+  },
+  {
+    id: 'philip', name: 'PHILIP', he: 'פיליפ', title: 'THE BRAWLER', titleHe: 'הבריון', platform: 'guest', channel: '',
+    accent: '#e8b646', stage: 5, stats: [2, 5, 4, 3],
+    look: { skin: '#6a4630', hair: '#c9a04a', hairStyle: 'long', beard: 'trim', beardColor: '#2a2018', shirt: '#cdb38a', jacket: '#3a2418', pants: '#1e1b1a', shoes: '#4a2f1c', build: 'burly', height: 1.05 },
+    specials: [
+      sp('U', 'אגרוף פטיש', 'HAMMER FIST', 'dashpunch', rush({ vfx: 'hammer', damage: 95, speed: 96, active: 14, armor: 1, knockdown: true })),
+      sp('FU', 'חיבוק דוב', 'BEAR HUG', 'grab', { kind: 'grab', startup: 9, active: 4, recovery: 32, damage: 140, range: 860, knockdown: true, vfx: 'bearhug' }),
+      sp('DU', 'הלם קרקע', 'GROUND POUND', 'stomp', shot({ vfx: 'shockwave', damage: 75, speed: 60, level: 'low', knockdown: true, size: [520, 300], life: 70 })),
+    ],
+    hype: { name: 'זעם', en: 'RAMPAGE', vfx: 'rampage' },
+    intro: 'בוא נראה מה יש לך.', win: 'אמרתי לך לא להתחיל איתי.',
+    skins: defaultSkins('#e8b646'),
+  },
+  {
+    id: 'adam', name: 'ADAM DRAKES', he: 'אדם', title: 'THE OUTLAW', titleHe: 'הפורע', platform: 'guest', channel: '',
+    accent: '#e8b646', stage: 2, stats: [4, 3, 3, 4],
+    look: { skin: '#c99670', hair: '#2a1d14', hairStyle: 'quiff', beard: 'mustache', shirt: '#b7a27a', jacket: '#3b2518', pants: '#17181c', shoes: '#4a2e1b', build: 'normal', height: 1.03 },
+    specials: [
+      sp('U', 'בקבוק', 'BOTTLE TOSS', 'lob', shot({ vfx: 'bottle', damage: 80, speed: 56, vy: 80, gravity: 6, knockdown: true, size: [300, 360] })),
+      sp('FU', 'בעיטת מגף', 'BOOT KICK', 'kickball', rush({ vfx: 'boot', damage: 85, speed: 118, active: 12 })),
+      sp('DU', 'דו-קרב', 'DUEL', 'counter', { kind: 'counter', startup: 3, active: 32, recovery: 20, damage: 105, hitstun: 30, knockdown: true, vfx: 'duel' }),
+    ],
+    hype: { name: 'צהרי היום', en: 'HIGH NOON', vfx: 'highnoon' },
+    intro: 'העיר הזאת קטנה מדי לשנינו.', win: 'ככה סוגרים חשבון.',
+    skins: defaultSkins('#e8b646'),
   },
 ];
 

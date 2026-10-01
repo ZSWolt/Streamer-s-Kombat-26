@@ -29,6 +29,8 @@ const HYPE: Record<string, { e: string[]; text: string; color: string; style: St
   redcarpet: { e: ['📸', '⭐'], text: 'THE PREMIERE', color: '#ffd84d', style: 'burst' },
   blizzard: { e: ['❄️', '🧊'], text: 'BLIZZARD!', color: '#9fe3ff', style: 'rain' },
   pinkmoney: { e: ['💸', '💖'], text: '10,000 ₪!', color: '#ff6fb5', style: 'rain' },
+  rampage: { e: ['👊', '💥'], text: 'RAMPAGE!', color: '#e8b646', style: 'barrage' },
+  highnoon: { e: ['🤠', '⭐', '🌵'], text: 'HIGH NOON', color: '#ffb347', style: 'burst' },
 };
 
 interface Active {

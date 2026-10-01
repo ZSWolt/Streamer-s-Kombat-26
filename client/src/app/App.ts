@@ -7,6 +7,8 @@ import { SECRETS } from '../data/secrets';
 import { loadChatFiles } from '../data/chat';
 import { Battle, type BattleOptions, type InputSource } from '../game/Battle';
 import { InputManager } from '../input/InputManager';
+import { preloadModels } from '../render/model';
+import { preloadProps } from '../render/props';
 import { Renderer } from '../render/Renderer';
 import { STAGES } from '../render/stages';
 import type { MatchConfig, MatchState } from '../sim/types';
@@ -75,7 +77,9 @@ export class App {
     requestAnimationFrame(this.loop);
     await document.fonts.ready;
     await loadChatFiles();
-    await generatePortraits((p) => boot.progress(p * 0.95, Math.round(p * ROSTER.length)));
+    preloadProps();
+    await preloadModels((p) => boot.progress(p * 0.4, 0));
+    await generatePortraits((p) => boot.progress(0.4 + p * 0.55, Math.round(p * ROSTER.length)));
     boot.progress(1, ROSTER.length);
     boot.ready(() => {
       audio.unlock();

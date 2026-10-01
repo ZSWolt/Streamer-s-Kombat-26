@@ -20,19 +20,19 @@ const B = (name: string, en: string, key: string, stamp: string, line: string): 
 
 export const FLAVOR: Record<string, Flavor> = {
   odedsvr: {
-    shouts: ['מחסני חשמל!', 'בוסטר!', 'בושות!'],
+    shouts: ['קונקארדס!', 'בוסטר!', 'בושות!'],
     banalities: [B('המסך שלי', 'MY SCREEN', 'monitor', 'OFFLINE', 'Stay awesome.'), B('קצר חשמלי', 'SHORT CIRCUIT', 'shock', 'מנותק', 'החשמל במחסני חשמל עדיין חשמל.')],
     intro: ['Stay awesome, אחי.', 'יאללה, עולים ללייב.'], reply: ['בושות.', 'איזה ביזוי.'],
     quote: 'מי רוצה לבוא ליום הולדת שלי?',
   },
   ronengg: {
-    shouts: ["רייג' בייט!", 'Keep moving forward!', 'דרמה!'],
+    shouts: ['אול אין!', 'Keep moving forward!', '24 ימים בלייב!'],
     banalities: [B('BREAKING NEWS', 'BREAKING NEWS', 'breaking', 'דרמה', 'פרשן הדרמות הכי טוב בעולם.'), B("עגבניות מהצ'אט", 'CHAT TOMATOES', 'tomatoes', 'בוז', "ברו נפל לרייג' בייט.")],
     intro: ["It's not about how hard you hit.", '80 אלף עוקבים לא טועים.'], reply: ["ברו נפל לרייג' בייט.", 'סיקור דרמות אחרי זה.'],
     quote: 'הגענו ל-80 אלף עוקבים!',
   },
   inde: {
-    shouts: ['אוזניות אינדה!', 'הפתעה!', 'נובים, קדימה!'],
+    shouts: ['תקנו מוצרים!', 'הפתעה!', 'נובים, קדימה!'],
     banalities: [B('10 שנים אחרי', '10 YEARS LATER', 'kid', 'ילד', 'תירשמו לערוץ.'), B('כפתור הפליי', 'PLAY BUTTON', 'plaque', 'מיליון', 'מיליון מנויים. אתה לא אחד מהם.')],
     intro: ['אינדה גיים! מה קורה?', 'עשר שנים ביוטיוב. בוא.'], reply: ['איך זה להיות יוטיובר? ככה.', 'תירשמו לערוץ.'],
     quote: 'מי שאוכל יותר בננות — מנצח!',
@@ -124,8 +124,22 @@ export const FLAVOR: Record<string, Flavor> = {
 };
 
 /** Pair-specific pre-fight exchanges (either order). */
+FLAVOR.philip = {
+  shouts: ['פטיש!', 'בוא הנה!', 'תרגיש את זה!'],
+  banalities: [B('מכת פטיש', 'HAMMER TIME', 'bonk', 'בונק', 'אמרתי לך לא להתחיל איתי.'), B('האדמה נפתחת', 'GROUND SPLIT', 'quakepit', 'נבלע', 'פיליפ לא שואל פעמיים.')],
+  intro: ['בוא נראה מה יש לך.', 'אתה בטוח שאתה רוצה את זה?'], reply: ['אני לא זז מפה.', 'תנסה.'],
+  quote: 'לא מתחילים עם פיליפ.',
+};
+FLAVOR.adam = {
+  shouts: ['תתפוס!', 'מגף!', 'דו-קרב!'],
+  banalities: [B('סוף הדרך', 'END OF THE LINE', 'wasted', 'WASTED', 'ככה סוגרים חשבון.'), B('קבור במדבר', 'BURIED IN THE DESERT', 'treasure', 'נקבר', 'אף אחד לא ימצא אותך.')],
+  intro: ['העיר הזאת קטנה מדי לשנינו.', 'ספור עד שלוש.'], reply: ['אני שולף ראשון.', 'נסגור את זה מהר.'],
+  quote: 'אדם דרייקס תמיד סוגר חשבון.',
+};
+
 export const PAIR_BANTER: [string, string, string, string][] = [
   ['odedsvr', 'ronengg', 'היום מנצחים את רונן גיגי.', 'בפיפא אולי. פה — לא.'],
+  ['philip', 'adam', 'דרייקס. שוב אתה.', 'פיליפ. חשבתי שסגרנו את זה.'],
   ['nave', 'inde', 'תצליח לזהות אותי?', 'אני הייתי פה לפני עשר שנים.'],
   ['masterohad', 'shoval', 'מי הגיימר היותר טוב? אין מצב שאני מפסיד.', 'תבחר קלף. כל קלף.'],
   ['masterohad', 'nave', 'אני ואתה, סולטיז. עכשיו.', 'האחרון שנשאר עומד — זוכה.'],

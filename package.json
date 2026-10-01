@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "server": "node server/index.ts",
-    "host": "npm run build && node server/index.ts"
+    "host": "npm run build && node server/index.ts",
+    "deploy": "node tools/deploy.mjs",
+    "models": "python tools/models/build_all.py"
   },
   "dependencies": {
     "postprocessing": "^6.39.5",

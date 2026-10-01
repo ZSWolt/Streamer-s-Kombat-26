@@ -2,7 +2,7 @@ import { audio } from '../audio/AudioEngine';
 import { music } from '../audio/music';
 import { ROSTER } from '../data/roster';
 import { Battle } from '../game/Battle';
-import { lobby } from '../net/LobbyClient';
+import { lobby, serverOverride, setServerFromInvite } from '../net/LobbyClient';
 import { PeerLink } from '../net/Peer';
 import { RollbackSession, SpectatorDriver } from '../net/Rollback';
 import * as C from '../sim/constants';
@@ -13,7 +13,7 @@ import { CharSelect } from './CharSelect';
 import { h, clear } from './dom';
 import { stone } from './stone';
 
-interface RoomView { id: string; name: string; players: ({ id: string; name: string } | null)[]; spectators: string[]; state: string }
+interface RoomView { id: string; name: string; players: ({ id: string; name: string } | null)[]; spectators: string[]; state: string; code?: string; locked?: boolean; hidden?: boolean }
 
 export class Lobby implements Screen {
   private el: HTMLElement;
@@ -30,6 +30,9 @@ export class Lobby implements Screen {
   private resultsEl: HTMLElement | null = null;
   private mySide: 0 | 1 = 0;
   private status: HTMLElement | null = null;
+  private dialog: HTMLElement | null = null;
+  /** room code from an invite link (?room=ABCD): offered once after connecting */
+  private pendingCode = (new URLSearchParams(location.search).get('room') ?? '').toUpperCase();
 
   constructor(private app: App) {
     music.play('menu');
@@ -77,11 +80,85 @@ export class Lobby implements Screen {
       this.showLobby();
     } catch {
       clear(this.body);
+      // No lobby server at this address (e.g. the public site): let the player paste the host's invite link.
+      const input = h('input', { placeholder: 'https://…', dir: 'ltr', value: serverOverride(), style: 'width:100%;text-align:left' }) as HTMLInputElement;
+      const go = () => {
+        if (input.value.trim() && !setServerFromInvite(input.value)) { this.app.toast('זה לא נראה כמו קישור הזמנה'); return; }
+        void this.connect();
+      };
+      input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') go(); });
       this.body.append(
-        h('p', { style: 'font-size:22px;max-width:760px;text-align:center;line-height:1.5' }, ['לא הצלחתי להתחבר לשרת. המארח צריך להפעיל את ', h('b', {}, ['START-SERVER.bat']), ' ולשלוח לכם את הקישור שמופיע אצלו. אם אתם המארחים — הפעילו אותו ופתחו את המשחק מהקישור.']),
-        h('div', { style: 'display:flex;gap:10px' }, [h('button', { class: 'btn', onclick: () => this.connect() }, ['לנסות שוב']), h('button', { class: 'btn ghost', onclick: () => this.app.goMenu(2) }, ['חזרה'])]),
+        h('div', { class: 'panel', style: 'width:min(640px,92vw);background:var(--panel);border:1px solid var(--panel-b);border-radius:10px;padding:20px' }, [
+          h('h3', { style: 'margin:0 0 8px' }, ['אין חיבור לשרת משחק']),
+          h('p', { style: 'margin:0 0 12px;line-height:1.5;color:var(--muted)' }, ['משחק אונליין רץ דרך המחשב של המארח. המארח מפעיל את ', h('b', {}, ['START-SERVER.bat']), ' ושולח קישור הזמנה. קיבלתם קישור? הדביקו אותו כאן:']),
+          input,
+          h('div', { class: 'row', style: 'margin-top:12px;display:flex;gap:8px' }, [h('button', { class: 'btn', onclick: go }, ['התחברות']), h('button', { class: 'btn ghost', onclick: () => this.app.goMenu(2) }, ['חזרה'])]),
+        ]),
       );
+      setTimeout(() => input.focus(), 50);
     }
+  }
+
+  /** Small modal form over the lobby. `fields` are text inputs; `onOk` gets their values. */
+  private openDialog(title: string, fields: { key: string; label: string; placeholder?: string; type?: string; value?: string; max?: number; ltr?: boolean }[],
+    checks: { key: string; label: string }[], okLabel: string, onOk: (v: Record<string, string>, c: Record<string, boolean>) => void, note = '') {
+    this.closeDialog();
+    const inputs: Record<string, HTMLInputElement> = {};
+    const boxes: Record<string, HTMLInputElement> = {};
+    const ok = () => {
+      const v: Record<string, string> = {}, c: Record<string, boolean> = {};
+      for (const k in inputs) v[k] = inputs[k].value.trim();
+      for (const k in boxes) c[k] = boxes[k].checked;
+      this.closeDialog();
+      onOk(v, c);
+    };
+    const rows = fields.map((f) => {
+      const i = h('input', { placeholder: f.placeholder ?? '', maxlength: String(f.max ?? 30), type: f.type ?? 'text', value: f.value ?? '', autocomplete: 'off' }) as HTMLInputElement;
+      if (f.ltr) { i.dir = 'ltr'; i.style.textAlign = 'left'; }
+      i.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') ok(); if (e.key === 'Escape') this.closeDialog(); });
+      inputs[f.key] = i;
+      return h('label', { class: 'dlg-row' }, [h('span', {}, [f.label]), i]);
+    });
+    const cks = checks.map((c) => {
+      const b = h('input', { type: 'checkbox' }) as HTMLInputElement;
+      boxes[c.key] = b;
+      return h('label', { class: 'dlg-check' }, [b, h('span', {}, [c.label])]);
+    });
+    this.dialog = h('div', { class: 'dlg-back', onclick: (e: Event) => { if (e.target === this.dialog) this.closeDialog(); } }, [
+      h('div', { class: 'dlg' }, [
+        h('h3', {}, [title]), ...rows, ...cks, note ? h('div', { class: 'dlg-note' }, [note]) : '',
+        h('div', { class: 'row' }, [h('button', { class: 'btn', onclick: ok }, [okLabel]), h('button', { class: 'btn ghost', onclick: () => this.closeDialog() }, ['ביטול'])]),
+      ]),
+    ]);
+    this.el.append(this.dialog);
+    setTimeout(() => Object.values(inputs)[0]?.focus(), 30);
+  }
+
+  private closeDialog() {
+    this.dialog?.remove();
+    this.dialog = null;
+  }
+
+  private createRoomDialog() {
+    this.openDialog('פתיחת חדר', [
+      { key: 'name', label: 'שם החדר', placeholder: `החדר של ${this.app.settings.nickname}` },
+      { key: 'password', label: 'סיסמה (לא חובה)', placeholder: 'בלי סיסמה — כל אחד יכול להיכנס', max: 32, type: 'password' },
+    ], [{ key: 'hidden', label: 'חדר מוסתר — לא מופיע ברשימה, נכנסים רק עם קוד החדר' }], 'פתיחה',
+    (v, c) => lobby.send({ t: 'createRoom', name: v.name, password: v.password, hidden: c.hidden, rounds: this.app.settings.rounds, time: this.app.settings.roundTime || 99 }),
+    'קרב 1 על 1 עם חבר: פתחו חדר עם סיסמה ושלחו לו את קוד החדר והסיסמה.');
+  }
+
+  private joinByCodeDialog(code = '') {
+    this.openDialog('הצטרפות עם קוד', [
+      { key: 'code', label: 'קוד החדר', placeholder: 'ABCD', max: 4, value: code, ltr: true },
+      { key: 'password', label: 'סיסמה (אם יש)', max: 32, type: 'password' },
+    ], [], 'הצטרפות', (v) => { if (v.code) lobby.send({ t: 'joinRoom', code: v.code, password: v.password || undefined }); });
+  }
+
+  private passwordDialog(m: { id: string; name: string; wrong?: boolean; spectate?: boolean }) {
+    this.openDialog(`🔒 ${m.name}`, [{ key: 'password', label: 'סיסמת החדר', max: 32, type: 'password' }], [], m.spectate ? 'צפייה' : 'כניסה',
+      (v) => { if (v.password) lobby.send({ t: 'joinRoom', id: m.id, password: v.password, spectate: m.spectate }); },
+      m.wrong ? 'הסיסמה לא נכונה. נסו שוב.' : '');
   }
 
   private bindLobby() {
@@ -96,12 +173,25 @@ export class Lobby implements Screen {
     on('spectateStart', (m) => this.startSpectate(m));
     on('abort', (m) => { this.app.toast(m.reason ?? 'הקרב בוטל'); this.endSub(); this.renderRoom(); });
     on('error', (m) => this.app.toast(m.msg));
+    on('needPassword', (m) => this.passwordDialog(m));
     on('close', () => { this.app.toast('החיבור לשרת נותק'); this.endSub(); this.app.goMenu(2); });
   }
 
   private showLobby() {
     lobby.send({ t: 'hello', name: this.app.settings.nickname });
     this.renderLobby();
+    if (this.pendingCode && !this.room) { const c = this.pendingCode; this.pendingCode = ''; this.joinByCodeDialog(c); }
+  }
+
+  /** Link that drops a friend straight into this room's join dialog (the password is never part of it). */
+  private roomInvite(code: string): string {
+    const base = lobby.invite || location.href.split('#')[0];
+    try {
+      const u = new URL(base);
+      u.searchParams.delete('hk');
+      u.searchParams.set('room', code);
+      return u.toString();
+    } catch { return base; }
   }
 
   private addChat(m: any) {
@@ -146,8 +236,8 @@ export class Lobby implements Screen {
     for (const r of this.rooms) {
       const full = r.players.every((p: string | null) => p);
       rooms.append(h('div', { class: 'room' }, [
-        h('div', { class: 'n' }, [r.name]),
-        h('div', { class: 'p' }, [`${r.players.filter((p: string | null) => p).join(' נגד ') || '—'} · צופים: ${r.spectators} · ${r.state === 'playing' ? 'בקרב' : full ? 'מלא' : 'מחכה ליריב'}`]),
+        h('div', { class: 'n' }, [(r.locked ? '🔒 ' : '') + r.name]),
+        h('div', { class: 'p' }, [`${r.players.filter((p: string | null) => p).join(' נגד ') || '—'} · צופים: ${r.spectators} · ${r.state === 'playing' ? 'בקרב' : full ? 'מלא' : 'מחכה ליריב'}${r.locked ? ' · עם סיסמה' : ''}`]),
         h('div', { class: 'row' }, [
           !full ? h('button', { class: 'btn', onclick: () => lobby.send({ t: 'joinRoom', id: r.id }) }, ['הצטרפות']) : '',
           h('button', { class: 'btn ghost', onclick: () => lobby.send({ t: 'joinRoom', id: r.id, spectate: true }) }, ['צפייה']),
@@ -158,7 +248,8 @@ export class Lobby implements Screen {
     const center = h('div', { class: 'panel' }, [
       h('h3', {}, ['חדרים']), rooms,
       h('div', { class: 'row' }, [
-        h('button', { class: 'btn', onclick: () => lobby.send({ t: 'createRoom', rounds: this.app.settings.rounds, time: this.app.settings.roundTime || 99 }) }, ['פתיחת חדר']),
+        h('button', { class: 'btn', onclick: () => this.createRoomDialog() }, ['פתיחת חדר']),
+        h('button', { class: 'btn', onclick: () => this.joinByCodeDialog() }, ['הצטרפות עם קוד']),
         h('button', { class: 'btn ghost', onclick: () => this.exit() }, ['חזרה לתפריט']),
       ]),
     ]);
@@ -170,9 +261,15 @@ export class Lobby implements Screen {
     clear(this.body);
     const r = this.room;
     const slot = (i: number) => h('div', { class: 'pl' }, [h('span', {}, [`שחקן ${i + 1}: ` + (r.players[i]?.name ?? 'מחכה...')]), h('span', { class: 'st' }, [r.players[i]?.id === lobby.id ? 'אתם' : ''])]);
+    const link = r.code ? this.roomInvite(r.code) : '';
     const center = h('div', { class: 'panel' }, [
-      h('h3', {}, [r.name]),
+      h('h3', {}, [(r.locked ? '🔒 ' : '') + r.name]),
       h('div', { class: 'list' }, [
+        r.code ? h('div', { class: 'room-code' }, [
+          h('span', {}, ['קוד החדר']), h('b', {}, [r.code]),
+          h('span', { class: 'st' }, [[r.hidden ? 'מוסתר' : 'מופיע ברשימה', r.locked ? 'עם סיסמה' : 'בלי סיסמה'].join(' · ')]),
+          h('button', { class: 'btn ghost', onclick: () => { void navigator.clipboard.writeText(link); this.app.toast(r.locked ? 'הקישור הועתק — את הסיסמה שולחים בנפרד' : 'הקישור הועתק!'); } }, ['העתקת הזמנה']),
+        ]) : '',
         slot(0), slot(1),
         h('div', { class: 'st', style: 'margin-top:8px;color:var(--muted)' }, [`צופים: ${r.spectators.join(', ') || '—'}`]),
         h('div', { style: 'margin-top:16px;color:var(--muted);line-height:1.5' }, ['כששני שחקנים בחדר — עוברים לבחירת לוחמים. בזמן הקרב אנשים יכולים להיכנס לצפות.']),
@@ -183,6 +280,7 @@ export class Lobby implements Screen {
   }
 
   private endSub() {
+    this.closeDialog();
     this.resultsEl?.remove();
     this.resultsEl = null;
     this.sub?.dispose();

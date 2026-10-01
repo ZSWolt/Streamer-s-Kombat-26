@@ -18,9 +18,11 @@ export interface SelectResult { chars: [number, number]; skins: [number, number]
 export interface NetPick { char: number; skin: number; locked: boolean; stage?: number }
 export interface SelectNet { side: 0 | 1; onLocal: (p: NetPick) => void }
 
-const COLS = 9;
-const SECRET0 = RANDOM_SLOT + 1; // grid indices 18..20 are the secret cards
-const SECRET_COLS = [3, 4, 5];
+// two rows: every fighter + the random card; the secret cards sit centred on a third row
+const COLS = Math.ceil((RANDOM_SLOT + 1) / 2);
+const SECRET0 = RANDOM_SLOT + 1;
+const SECRET_COLS = SECRETS.map((_, k) => (COLS - SECRETS.length) / 2 + k);
+const rowLen = (row: number) => Math.min(COLS, RANDOM_SLOT + 1 - row * COLS);
 
 interface Cursor { idx: number; locked: boolean; skin: number; active: boolean }
 
@@ -59,7 +61,7 @@ export class CharSelect implements Screen {
     ];
     this.stage = ROSTER[this.cur[0].idx].stage;
 
-    const grid = h('div', { class: 'cs-grid' });
+    const grid = h('div', { class: 'cs-grid', style: `--cols:${COLS}` });
     for (let i = 0; i <= RANDOM_SLOT; i++) grid.append(this.makeCard(i));
     const secretRow = h('div', { class: 'cs-secrets' });
     SECRETS.forEach((_, k) => secretRow.append(this.makeCard(SECRET0 + k)));
@@ -146,7 +148,7 @@ export class CharSelect implements Screen {
       const f = ROSTER[i];
       card = h('div', { class: 'cs-card' }, [
         h('div', { class: 'img', style: `background-image:url(${portraitUrl(i, 'card')})` }),
-        h('div', { class: 'plat ' + f.platform }, [f.platform === 'kick' ? 'KICK' : 'YT']),
+        h('div', { class: 'plat ' + f.platform }, [f.platform === 'kick' ? 'KICK' : f.platform === 'youtube' ? 'YT' : 'NEW']),
         h('div', { class: 'title' }, [f.title]),
         h('div', { class: 'name' }, [f.he]),
         ...tags,
@@ -208,7 +210,7 @@ export class CharSelect implements Screen {
     if (e === 'left' || e === 'right') {
       const d = e === 'right' ? 1 : -1;
       if (inSecret) c.idx = SECRET0 + ((c.idx - SECRET0 + d + SECRETS.length) % SECRETS.length);
-      else { const row = Math.floor(c.idx / COLS); c.idx = row * COLS + ((c.idx % COLS) + d + COLS) % COLS; }
+      else { const row = Math.floor(c.idx / COLS), n = rowLen(row); c.idx = row * COLS + ((c.idx % COLS) + d + n) % n; }
     } else if (e === 'up' || e === 'down') {
       const rows = [0, 1, 2];
       const row = inSecret ? 2 : Math.floor(c.idx / COLS);
@@ -218,7 +220,7 @@ export class CharSelect implements Screen {
         let best = 0;
         SECRET_COLS.forEach((sc, k) => { if (Math.abs(sc - col) < Math.abs(SECRET_COLS[best] - col)) best = k; });
         c.idx = SECRET0 + best;
-      } else c.idx = nr * COLS + col;
+      } else c.idx = nr * COLS + Math.min(Math.round(col), rowLen(nr) - 1);
     } else if (e === 'confirm') { this.confirm(p); return; }
     else if (e === 'alt') { this.cycleSkin(p); return; }
     else if (e === 'back') {

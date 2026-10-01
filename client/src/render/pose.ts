@@ -14,14 +14,17 @@ export const EX_HIPY = NJ * 3; // hips height offset (m)
 export const EX_HIPZ = NJ * 3 + 1; // hips forward offset (m)
 export const EX_MOUTH = NJ * 3 + 2; // 0 closed .. 1 open
 export const EX_EYES = NJ * 3 + 3; // 1 open .. 0 closed
-export const POSE_LEN = NJ * 3 + 4;
+// 0 = the pose was built on top of GUARD (unspecified joints mean "stay in your fighting stance"),
+// 1 = authored from scratch (every joint is meant literally). Real models use this to keep their own stance.
+export const EX_ABS = NJ * 3 + 4;
+export const POSE_LEN = NJ * 3 + 5;
 
 export type Pose = Float32Array;
 export type PoseSpec = Partial<Record<JointName, [number, number, number]>> & { hy?: number; hz?: number; mouth?: number; eyes?: number };
 
 export function makePose(spec: PoseSpec, base?: Pose): Pose {
   const p = base ? new Float32Array(base) : new Float32Array(POSE_LEN);
-  if (!base) p[EX_EYES] = 1;
+  if (!base) { p[EX_EYES] = 1; p[EX_ABS] = 1; }
   for (const k of JOINTS) {
     const v = spec[k];
     if (v) { const i = J[k] * 3; p[i] = v[0]; p[i + 1] = v[1]; p[i + 2] = v[2]; }
@@ -58,6 +61,7 @@ export const GUARD = makePose({
   thighR: [0.28, 0, -0.14], shinR: [0.45, 0, 0], footR: [-0.2, 0, 0],
   hy: -0.06,
 });
+GUARD[EX_ABS] = 0;
 
 const g = (spec: PoseSpec) => makePose(spec, GUARD);
 

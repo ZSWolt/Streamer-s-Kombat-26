@@ -25,6 +25,8 @@ function shots(): Plugin {
 }
 
 export default defineConfig({
+  // relative asset URLs: the same build works at /, under /Streamer-s-Kombat-26/ and under …/dist/ (GitHub Pages)
+  base: './',
   root: 'client',
   publicDir: 'public',
   plugins: [shots()],

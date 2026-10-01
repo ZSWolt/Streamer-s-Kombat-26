@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { cardPack, indeProduct, pokerChip, subathonBoard } from './props';
 import { canvasTex } from './textures';
 
 // Emoji billboards give every projectile/prop an instantly readable "chat emote" look.
@@ -60,7 +61,10 @@ export const PROJECTILE_EMOJI: Record<string, string> = {
   microwave: '📦', tornado: '🌪️', headset: '🎧', noobs: '🤓', zzz: '💤', car: '🚗', shockwave: '💥', snacks: '🍟',
   hypno: '🌀', cards: '🃏', snipe: '🃏', quake: '💥', dog: '🐕', football: '⚽', pctower: '🖥️', cake: '🎂', dice: '🎲',
   scream: '📢', chocolate: '🍫', money: '💸', popcorn: '🍿', snowball: '❄️', ghost: '👻', milkshake: '🥤', quiz: '❓',
+  concards: '🃏', chips: '🪙', indegear: '🎧', subathon: '⏱️', bottle: '🍾',
 };
+/** projectiles drawn as real 3D props (render/props.ts) instead of emoji billboards */
+const PROP_KEYS = new Set(['concards', 'chips', 'indegear', 'subathon']);
 
 interface Particle {
   obj: THREE.Object3D;
@@ -203,12 +207,21 @@ export class Vfx {
       let o = this.projMeshes.get(p.id);
       const key = p.vfx.split(':')[0];
       if (!o) {
-        o = this.makeProjectile(key, p.w / 1000, p.h / 1000, p.kind);
+        o = PROP_KEYS.has(key) ? this.makeProp(key, p.w / 1000, p.h / 1000, p.id, p.vfx) : this.makeProjectile(key, p.w / 1000, p.h / 1000, p.kind);
         this.projMeshes.set(p.id, o);
         this.group.add(o);
       }
       o.position.set(p.x / 1000, p.y / 1000, 0.3);
       const flip = p.vx < 0 ? -1 : 1;
+      const prop = o.userData.prop as (THREE.Object3D & { tick?: (t: number) => void }) | undefined;
+      if (prop) {
+        const ph = p.id * 1.7, a = t * 60; // tumble in the air, each one out of phase with the others
+        if (key === 'concards') prop.rotation.set(0, Math.sin(a * 0.09 + ph) * 0.7, flip * (a * 0.13 + ph));
+        else if (key === 'chips') prop.rotation.set(Math.sin(a * 0.05 + ph) * 0.5, a * 0.21 + ph, flip * a * 0.04);
+        else if (key === 'indegear') prop.rotation.set(a * 0.06 + ph, a * 0.09, flip * a * 0.05);
+        else prop.rotation.set(Math.sin(a * 0.05) * 0.08, Math.sin(a * 0.04) * 0.18, Math.sin(a * 0.07) * 0.06);
+        prop.tick?.(t);
+      }
       const spr = o.userData.sprite as THREE.Sprite | undefined;
       if (spr) {
         const spin = o.userData.spin as number;
@@ -218,15 +231,36 @@ export class Vfx {
         if (key === 'tornado' || key === 'scream' || key === 'hypno') spr.material.rotation = t * 10;
       }
       const halo = o.userData.halo as THREE.Sprite | undefined;
-      if (halo) halo.material.opacity = 0.6 + Math.sin(t * 20) * 0.2;
+      if (halo) halo.material.opacity = prop ? 0.2 + Math.sin(t * 20) * 0.06 : 0.6 + Math.sin(t * 20) * 0.2;
       if (p.reflected && !o.userData.refl) { o.userData.refl = true; (halo?.material as THREE.SpriteMaterial)?.color.set('#7fd3ff'); }
     }
     for (const [id, o] of this.projMeshes) {
       if (!alive.has(id)) {
         this.group.remove(o);
+        (o.userData.prop?.userData.dispose as (() => void) | undefined)?.();
         this.projMeshes.delete(id);
       }
     }
+  }
+
+  private makeProp(key: string, w: number, h: number, id: number, vfx: string): THREE.Object3D {
+    const g = new THREE.Group();
+    const size = Math.max(w, h);
+    let prop: THREE.Object3D;
+    if (key === 'concards') { prop = cardPack(); prop.scale.setScalar(size * 1.3); }
+    else if (key === 'chips') { prop = pokerChip(Number(vfx.split(':')[1] ?? 1 + (id % 6))); prop.scale.setScalar(size * 1.15); }
+    else if (key === 'indegear') { prop = indeProduct(id); prop.scale.setScalar(size * 1.45); }
+    else { prop = subathonBoard(); prop.scale.setScalar(size * 1.9); }
+    if (key !== 'subathon') {
+      const halo = this.sprite(this.sparkTex, key === 'indegear' ? '#27a6ff' : key === 'chips' ? '#ffd27a' : '#ff5fd2', size * 1.7);
+      halo.material.opacity = 0.2;
+      halo.position.z = -0.15;
+      g.add(halo);
+      g.userData.halo = halo;
+    }
+    g.add(prop);
+    g.userData.prop = prop;
+    return g;
   }
 
   private makeProjectile(key: string, w: number, h: number, kind: string): THREE.Object3D {

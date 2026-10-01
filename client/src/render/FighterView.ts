@@ -295,6 +295,14 @@ export class ProceduralFighterView implements FighterVisual {
     this.headAng.y = THREE.MathUtils.clamp(this.headAng.y, -0.5, 0.5);
     this.rig.headBob.rotation.x = this.headAng.x;
     this.rig.headBob.rotation.z = this.headAng.y;
+
+    const skin = this.rig.skin;
+    if (skin) {
+      // feet carry the body unless it is airborne or rolled over (lying, slides, rolls)
+      skin.feetOnGround = f.y <= 0 && Math.abs(tmp2[P.J.hips * 3]) < 0.7;
+      skin.absolute = tmp2[P.EX_ABS];
+      skin.update(dt);
+    }
   }
 
   dispose() {

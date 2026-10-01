@@ -15,7 +15,7 @@ import { logoEl } from '../ui/logo';
 import { portraitUrl } from '../ui/portraits';
 import { stone } from '../ui/stone';
 
-const ORDER = ['odedsvr', 'ronengg', 'inde', 'nave', 'shoval', 'paz', 'ori', 'igz', 'liorslife', 'psyqr', 'maorameleh', 'masterohad', 'pedrofederer', 'k0nkamc', 'devidtur', 'sasivetheboiz', 'shotist'];
+const ORDER = ['odedsvr', 'ronengg', 'inde', 'nave', 'shoval', 'paz', 'ori', 'igz', 'liorslife', 'psyqr', 'maorameleh', 'masterohad', 'pedrofederer', 'k0nkamc', 'devidtur', 'sasivetheboiz', 'shotist', 'philip', 'adam'];
 const SHOT = 2.35;
 const SHOWCASE = ['projectile', 'summon', 'drop', 'rush', 'uppercut', 'slam', 'trap'];
 
@@ -122,7 +122,7 @@ export class IntroCinematic implements Screen {
     this.card = h('div', { class: 'intro-card' }, [
       stone(f.he, 'n'),
       h('div', { class: 't' }, [f.title]),
-      h('div', { class: 'p ' + f.platform }, [f.platform === 'kick' ? 'KICK.COM/' + f.name : 'YOUTUBE']),
+      h('div', { class: 'p ' + f.platform }, [f.platform === 'kick' ? 'KICK.COM/' + f.name : f.platform === 'youtube' ? 'YOUTUBE' : 'NEW CHALLENGER']),
     ]);
     this.ui.append(this.card);
     audio.sfx('slam', 0, 0.7);
@@ -135,7 +135,7 @@ export class IntroCinematic implements Screen {
     this.card?.remove();
     this.app.canvasMode('dim');
     const row = h('div', { class: 'portrait-row', style: 'display:flex;gap:10px;margin-top:3vh;flex-wrap:wrap;justify-content:center;max-width:92vw' },
-      ROSTER.map((f, i) => h('div', { class: 'round-portrait', style: `background-image:url(${portraitUrl(i, 'icon')});--acc:${f.platform === 'kick' ? '#53fc18' : '#ff0033'};animation-delay:${0.8 + i * 0.06}s` })));
+      ROSTER.map((f, i) => h('div', { class: 'round-portrait', style: `background-image:url(${portraitUrl(i, 'icon')});--acc:${f.platform === 'kick' ? '#53fc18' : f.platform === 'youtube' ? '#ff0033' : '#e8b646'};animation-delay:${0.8 + i * 0.06}s` })));
     const lg = logoEl();
     lg.style.animation = 'slamIn 1s cubic-bezier(.2,1.4,.4,1) both';
     const el = h('div', { class: 'screen', style: 'background:radial-gradient(ellipse at 50% 42%, rgba(90,30,8,.6), #000 70%)' }, [lg, row]);

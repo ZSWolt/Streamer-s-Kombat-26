@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Fighter, Look } from '../data/roster';
 import { EX_EYES, EX_HIPY, EX_HIPZ, EX_MOUTH, J, JOINTS, type Pose } from './pose';
+import { getModel, ModelSkin } from './model';
 
 // Procedural "vinyl toy" bobblehead character. Used until the AI-generated GLB models are dropped in.
 
@@ -34,13 +35,6 @@ function sphere(r: number, m: THREE.Material, w = 24, h = 18) {
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, w, h), m);
   mesh.castShadow = true;
   return mesh;
-}
-
-/** Front lower-face shell used by full and trimmed beards. */
-function beardShell(r: number, full: boolean) {
-  const thetaStart = Math.PI * (full ? 0.48 : 0.52);
-  const thetaLength = Math.PI * (full ? 0.45 : 0.34);
-  return new THREE.SphereGeometry(r, 32, 16, 0, Math.PI, thetaStart, thetaLength);
 }
 
 function textTexture(lines: string[], color = '#ffffff', bg = 'rgba(0,0,0,0)', w = 512, h = 256): THREE.CanvasTexture {
@@ -143,6 +137,32 @@ function strandTexture(kind: 'hair' | 'beard') {
   return t;
 }
 
+/** Lower-face beard shell whose top edge follows a natural cheek line — high at the sideburns, down the
+ *  cheeks to the mouth corners, then under the lower lip — instead of a straight band that reads as a mask. */
+function beardShell(r: number, full: boolean): THREE.BufferGeometry {
+  const phi0 = -0.15, phiLen = Math.PI + 0.3;
+  const bottom = Math.PI * (full ? 0.96 : 0.94);
+  const side = Math.PI * (full ? 0.47 : 0.53); // sideburn height
+  const corner = Math.PI * (full ? 0.595 : 0.61); // meets the mustache ends
+  const lip = Math.PI * (full ? 0.665 : 0.675); // just under the lower lip
+  const g = new THREE.SphereGeometry(r, 40, 20, phi0, phiLen, side, bottom - side);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const nor = g.attributes.normal as THREE.BufferAttribute;
+  const uv = g.attributes.uv as THREE.BufferAttribute;
+  const smooth = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  for (let i = 0; i < pos.count; i++) {
+    const phi = phi0 + uv.getX(i) * phiLen;
+    const v = 1 - uv.getY(i); // 0 at the top edge, 1 at the bottom
+    const a = Math.abs(phi - Math.PI / 2) / (Math.PI / 2 + 0.15); // 0 = chin centre, 1 = sideburn
+    const top = a < 0.13 ? lip : a < 0.22 ? lip + (corner - lip) * smooth(0.13, 0.22, a) : corner + (side - corner) * smooth(0.22, 1, a);
+    const th = top + v * (bottom - top);
+    const x = -Math.cos(phi) * Math.sin(th), y = Math.cos(th), z = Math.sin(phi) * Math.sin(th);
+    pos.setXYZ(i, x * r, y * r, z * r);
+    nor.setXYZ(i, x, y, z);
+  }
+  return g;
+}
+
 export interface RigParts {
   root: THREE.Group; // world placement
   body: THREE.Group; // facing/mirroring
@@ -160,6 +180,12 @@ export interface RigParts {
   wheelchair: boolean;
   wheels: THREE.Object3D[];
   chair: THREE.Group | null;
+  /** Real GLB model driven by this rig's joints (null = the procedural body is what you see). */
+  skin: ModelSkin | null;
+  /** Centre of the head, whichever body is shown. */
+  faceAnchor: THREE.Object3D;
+  /** Head radius in world units (portrait framing). */
+  headSize: number;
 }
 
 export function buildRig(f: Fighter, skinIdx = 0): RigParts {
@@ -616,10 +642,25 @@ export function buildRig(f: Fighter, skinIdx = 0): RigParts {
 
   root.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; } });
 
+  // a real model replaces the procedural body; the joints stay and keep driving it
+  const asset = skin.wheelchair ? null : getModel(f.id);
+  let model: ModelSkin | null = null;
+  if (asset) {
+    const dead: THREE.Mesh[] = [];
+    body.traverse((o) => { if ((o as THREE.Mesh).isMesh) dead.push(o as THREE.Mesh); });
+    for (const m of dead) { m.removeFromParent(); m.geometry.dispose(); }
+    for (const m of materials) m.dispose();
+    model = new ModelSkin(asset, joints, headBob, legLen, tint);
+    body.add(model.root);
+    materials.length = 0;
+    materials.push(...model.materials);
+  }
+
   return {
     root, body, joints, hipsBaseY: legLen, head: head as THREE.Group, headBob,
-    lidL: lids[0], lidR: lids[1], mouthOpen, mouthSmile, materials,
+    lidL: lids[0], lidR: lids[1], mouthOpen, mouthSmile: model ? new THREE.Object3D() : mouthSmile, materials,
     handL: hands[0], handR: hands[1], height: 1.75 * hm, wheelchair: !!skin.wheelchair, wheels, chair,
+    skin: model, faceAnchor: model ? model.faceAnchor : hc, headSize: (model ? model.headSize : HEAD_R) * hm,
   };
 }
 

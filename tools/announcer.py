@@ -1,6 +1,6 @@
 """Generate the announcer lines with Microsoft neural TTS (edge-tts).
 
-Usage:  python tools/announcer.py
+Usage:  python tools/announcer.py [--only name_philip,name_adam]   (no --only = regenerate everything)
 Output: client/public/assets/audio/announcer/{he,en}/<key>.mp3
 The in-game announcer adds reverb/compression at runtime.
 """
@@ -43,7 +43,7 @@ VOICES = {'he': 'he-IL-AvriNeural', 'en': 'en-US-GuyNeural'}
 
 EN_SPOKEN = {
     'odedsvr': 'Oded S.V.R.', 'ronengg': 'Ronen G.G.', 'igz': 'I.G.Z.', 'liorslife': "Lior's Life", 'psyqr': 'Psy Q.R.',
-    'sasivetheboiz': 'Sasi and the Boiz', 'devidtur': 'David Tur', 'pedrofederer': 'Pedro Federer', 'maorameleh': 'Maor Hamelech',
+    'sasivetheboiz': 'Sasi and the Boiz', 'devidtur': 'David Tur', 'pedrofederer': 'Pedro Federer', 'maorameleh': 'Maor Snacks', 'philip': 'Philip', 'adam': 'Adam Drakes',
     'k0nkamc': 'Konka M.C.', 'masterohad': 'Master Ohad', 'shotist': 'Shotist', 'inde': 'Inde', 'nave': 'Nave', 'shoval': 'Shoval',
     'paz': 'Paz', 'ori': 'Ori',
 }
@@ -70,6 +70,9 @@ async def render(key, text, lang):
 async def main():
     lines = dict(LINES)
     lines.update(roster_names())
+    if '--only' in sys.argv:
+        keep = set(sys.argv[sys.argv.index('--only') + 1].split(','))
+        lines = {k: v for k, v in lines.items() if k in keep}
     jobs = []
     for key, (he, en) in lines.items():
         jobs.append(render(key, he, 'he'))
