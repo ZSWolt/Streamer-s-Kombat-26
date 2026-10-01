@@ -6,10 +6,11 @@
 // sources and the fresh dist/ are copied into it, the root index.html (which points Pages at dist/) is
 // regenerated, and only the copied paths are committed — other work in the clone is left alone.
 //
-// The site lives at https://zswolt.github.io/Streamer-s-Kombat-26/ and, once the domain's DNS points at GitHub
-// Pages, at https://streamerskombatil.online/. The CNAME file that tells Pages to use the domain is only written
-// when that DNS is really in place: Pages redirects the github.io address to the custom domain the moment the
-// file exists, so adding it early would take the site down for everyone.
+// Pages is published by the repo's own workflow (.github/workflows/static.yml): every push to main is built on
+// GitHub and that build's dist/ becomes the site. It lives at https://zswolt.github.io/Streamer-s-Kombat-26/ and,
+// once the custom domain is set in the repo's Pages settings and its DNS points at GitHub, at
+// https://streamerskombatil.online/ (a workflow-published site takes its domain from the settings, not from a
+// CNAME file). This script waits for whichever of the two is serving the new build.
 import { spawnSync } from 'node:child_process';
 import dns from 'node:dns/promises';
 import fs from 'node:fs';
@@ -24,8 +25,8 @@ let domainReady = false;
 try {
   const ips = await new dns.Resolver().resolve4(DOMAIN).catch(() => dns.resolve4(DOMAIN));
   domainReady = ips.length > 0 && ips.every((ip) => PAGES_IPS.includes(ip));
-  if (!domainReady) console.log(`! ${DOMAIN} resolves to ${ips.join(', ')} — not GitHub Pages yet, publishing on github.io only`);
-} catch { console.log(`! ${DOMAIN} does not resolve yet — publishing on github.io only`); }
+  if (!domainReady) console.log(`! ${DOMAIN} resolves to ${ips.join(', ')} — not GitHub Pages yet, checking the github.io address`);
+} catch { console.log(`! ${DOMAIN} does not resolve yet — checking the github.io address`); }
 const SITE = domainReady ? `https://${DOMAIN}/` : 'https://zswolt.github.io/Streamer-s-Kombat-26/';
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -96,9 +97,6 @@ const html = fs.readFileSync(path.join(ROOT, 'dist', 'index.html'), 'utf8');
 if (!/<meta name="viewport"[^>]*>/.test(html)) { console.error('dist/index.html has no viewport meta to anchor the <base> tag'); process.exit(1); }
 // (relative, so the same page works under /Streamer-s-Kombat-26/ on github.io and at the root of the custom domain)
 fs.writeFileSync(path.join(CLONE, 'index.html'), html.replace(/(<meta name="viewport"[^>]*>)/, '$1\n    <base href="dist/" />'));
-const cname = path.join(CLONE, 'CNAME');
-if (domainReady) fs.writeFileSync(cname, DOMAIN + '\n');
-else if (fs.existsSync(cname)) { console.error(`✗ the clone has a CNAME file but ${DOMAIN} does not point at GitHub Pages; fix the DNS (or remove CNAME) first`); process.exit(1); }
 
 // ---------------------------------------------------------------- commit + push
 const list = path.join(os.tmpdir(), `sk-deploy-${process.pid}.txt`);
@@ -106,7 +104,6 @@ fs.writeFileSync(list, files.join('\n'));
 git(['add', '--pathspec-from-file=' + list]);
 fs.rmSync(list);
 git(['add', '-A', '--', 'dist', 'index.html', ':!dist/tools']);
-if (domainReady) git(['add', '--', 'CNAME']);
 if (spawnSync('git', ['-C', CLONE, 'diff', '--cached', '--quiet']).status === 0) { console.log('✓ nothing changed — the site is already up to date'); process.exit(0); }
 const mf = path.join(os.tmpdir(), `sk-deploy-msg-${process.pid}.txt`);
 fs.writeFileSync(mf, message);
