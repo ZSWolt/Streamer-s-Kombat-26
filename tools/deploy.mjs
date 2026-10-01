@@ -6,11 +6,11 @@
 // sources and the fresh dist/ are copied into it, the root index.html (which points Pages at dist/) is
 // regenerated, and only the copied paths are committed — other work in the clone is left alone.
 //
-// Pages is published by the repo's own workflow (.github/workflows/static.yml): every push to main is built on
-// GitHub and that build's dist/ becomes the site. It lives at https://zswolt.github.io/Streamer-s-Kombat-26/ and,
-// once the custom domain is set in the repo's Pages settings and its DNS points at GitHub, at
-// https://streamerskombatil.online/ (a workflow-published site takes its domain from the settings, not from a
-// CNAME file). This script waits for whichever of the two is serving the new build.
+// GitHub Pages publishes the repository root of `main` ("deploy from a branch"): the root index.html written
+// below points into the committed dist/. The site is https://streamerskombatil.online/ (custom domain; the old
+// github.io address redirects to it). There used to be a second deployment, a workflow that published the
+// contents of dist/ at the root; the two raced on every push and their different layouts left visitors with a
+// cached page looking at 404s (a white screen), so it was removed — keep it that way.
 import { spawnSync } from 'node:child_process';
 import dns from 'node:dns/promises';
 import fs from 'node:fs';
