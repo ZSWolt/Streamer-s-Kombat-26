@@ -264,6 +264,22 @@ export class AudioEngine {
         this.tone(t, 0.9, g, { f0: 55, f1: 110, vol: 0.4, type: 'sawtooth' });
         this.noise(t, 0.9, g, { f0: 400, vol: 0.3 });
         break;
+      case 'guitar': { // one open strum, low string to high
+        [110, 164.8, 220, 277.2, 329.6].forEach((f, i) => {
+          this.tone(t + i * 0.022, 0.9, g, { f0: f * rnd, vol: 0.16, type: 'triangle', attack: 0.003 });
+          this.tone(t + i * 0.022, 0.25, g, { f0: f * 2 * rnd, vol: 0.05, type: 'sawtooth', attack: 0.002 });
+        });
+        wet.gain.value = 0.5;
+        break;
+      }
+      case 'twang': // a guitar coming to a bad end
+        [98, 147, 233, 311].forEach((f, i) => this.tone(t + i * 0.01, 0.7, g, { f0: f * rnd, f1: f * 0.7, vol: 0.18, type: 'sawtooth', attack: 0.002 }));
+        this.noise(t, 0.25, g, { f0: 2500, f1: 300, vol: 0.6 });
+        wet.gain.value = 0.5;
+        break;
+      case 'spray':
+        this.noise(t, 0.45, g, { type: 'highpass', f0: 3500, f1: 7000, vol: 0.35, attack: 0.03 });
+        break;
       case 'bark':
         this.tone(t, 0.12, g, { f0: 500, f1: 300, vol: 0.4, type: 'sawtooth' });
         this.tone(t + 0.18, 0.12, g, { f0: 520, f1: 280, vol: 0.4, type: 'sawtooth' });

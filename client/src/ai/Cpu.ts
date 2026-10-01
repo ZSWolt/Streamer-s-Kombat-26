@@ -87,7 +87,7 @@ export class Cpu {
     const sp = ROSTER[me.char].specials;
     const ready = (i: number) => specialWait(m, this.p, i) === 0;
     const hasShot = sp.findIndex((s, i) => (s.spec.kind === 'projectile' || s.spec.kind === 'summon') && ready(i));
-    const dirFor = (i: number) => (i === 0 ? 0 : i === 1 ? F : C.IN_DOWN);
+    const dirFor = (i: number) => (i === 0 ? 0 : i === 1 ? F : i === 2 ? C.IN_DOWN : B);
 
     if (m.phase === 'finish' && m.winner === this.p) {
       // pick a finisher: punch = banality 1, kick = banality 2, special = surprise
@@ -114,7 +114,7 @@ export class Cpu {
     if (dist > 1100) {
       if (r < d.aggression * 0.5) { this.push(F, 1); this.push(0, 2); this.push(F, 1); this.push(F, 10); }
       else if (r < d.aggression * 0.5 + d.special * 0.6) {
-        const i = Math.floor(Math.random() * 3);
+        const i = Math.floor(Math.random() * sp.length);
         if (ready(i)) { this.push(dirFor(i), 3); this.push(dirFor(i) | C.IN_SP, 2); this.push(0, 30); }
         else this.push(F, 10);
       } else if (r < 0.8) this.push(F, 14);
@@ -128,7 +128,7 @@ export class Cpu {
       ];
       const c = combos[Math.floor(Math.random() * combos.length)];
       for (const b of c) { this.push(b, 2); this.push(b & C.IN_DOWN, 7); }
-      if (Math.random() < d.special) { const i = Math.floor(Math.random() * 3); if (ready(i)) { this.push(dirFor(i), 2); this.push(dirFor(i) | C.IN_SP, 2); } }
+      if (Math.random() < d.special) { const i = Math.floor(Math.random() * sp.length); if (ready(i)) { this.push(dirFor(i), 2); this.push(dirFor(i) | C.IN_SP, 2); } }
       this.push(0, 20);
     } else if (r < d.combo + 0.12) {
       this.push(C.IN_LP | C.IN_LK, 3); this.push(0, 30);

@@ -4,6 +4,7 @@ import { audio } from '../audio/AudioEngine';
 import { announcer, voices } from '../audio/announcer';
 import { music } from '../audio/music';
 import { ROSTER } from '../data/roster';
+import { MV, spSlot } from '../sim/moves';
 import * as C from '../sim/constants';
 import { cloneMatch, createMatch, step } from '../sim/match';
 import type { MatchConfig, MatchState, SimEvent } from '../sim/types';
@@ -279,6 +280,18 @@ export class Battle {
     music.intensity = m.phase === 'finish' ? 0.2 : 1;
   }
 
+  /** What a thrown thing does when it lands on someone or on the floor (`vfx` as the projectile carries it). */
+  private propImpact(vfx: string, x: number, y: number) {
+    const pan = THREE.MathUtils.clamp((x - this.cam.pos.x) / 5, -1, 1);
+    switch (vfx.split(':')[0]) {
+      case 'wine': audio.sfx('glass', pan); this.vfx.hitSpark(x, y, 1, false, '#c2183a'); this.vfx.burst(x, y, '🍷', 4, 4, 0.4); break;
+      case 'perfume': audio.sfx('glass', pan, 0.7); audio.sfx('spray', pan); this.vfx.hitSpark(x, y, 1, false, '#d58cff'); this.vfx.burst(x, y, '💨', 6, 3, 0.6); break;
+      case 'creep': audio.sfx('twang', pan); this.vfx.burst(x, y, '🎵', 6, 5, 0.45); break;
+      case 'lettuce': this.vfx.burst(x, y, '🥬', 4, 4, 0.4); break;
+      case 'batza': this.vfx.burst(x, y, '🍃', 4, 4, 0.35); break;
+    }
+  }
+
   private onEvent(e: SimEvent, m: MatchState) {
     const A = audio;
     const pan = (x?: number) => THREE.MathUtils.clamp(((x ?? 0) / 1000 - this.cam.pos.x) / 5, -1, 1);
@@ -322,6 +335,7 @@ export class Battle {
         const heavy = e.b ?? 0;
         const x = (e.x ?? 0) / 1000, y = Math.max(0.4, (e.y ?? 1000) / 1000);
         this.vfx.hitSpark(x, y, heavy, false);
+        if (e.s?.startsWith('proj:')) this.propImpact(e.s.slice(5), x, y);
         A.sfx(heavy >= 3 ? 'hitX' : heavy === 2 ? 'hitH' : heavy === 1 ? 'hitM' : 'hitL', pan(e.x));
         this.cam.shake((0.25 + heavy * 0.25) * fx);
         if (heavy >= 2) { this.r.kickChroma(0.006 * fx); this.cam.punch(0.25); this.stage.pulse(0.6); }
@@ -337,6 +351,7 @@ export class Battle {
         break;
       }
       case 'block':
+        if (e.s) this.propImpact(e.s, (e.x ?? 0) / 1000, Math.max(0.5, (e.y ?? 1000) / 1000));
         this.vfx.hitSpark((e.x ?? 0) / 1000, Math.max(0.5, (e.y ?? 1000) / 1000), e.b ?? 0, true);
         A.sfx('block', pan(e.x));
         this.cam.shake(0.1 * fx);
@@ -351,7 +366,7 @@ export class Battle {
       }
       case 'special': {
         const f = ROSTER[m.f[e.p!].char];
-        const idx = (e.a ?? 14) - 14;
+        const idx = spSlot(e.a ?? MV.SP0);
         const sp = f.specials[idx];
         if (sp) this.hud.callout(e.p!, sp.name, FLAVOR[f.id]?.shouts[idx] ?? '', spInput(sp.input));
         A.sfx('special', pan(m.f[e.p!].x));
@@ -362,9 +377,11 @@ export class Battle {
       case 'proj':
         A.sfx('proj', pan(m.f[e.p!].x));
         if (e.s === 'car') A.sfx('engine');
+        if (e.s === 'creep') A.sfx('guitar', pan(m.f[e.p!].x));
+        if (e.s === 'indegear') this.vfx.floatText(m.f[e.p!].x / 1000, 1.95, 'תקנו מוצרים!', '#27a6ff', 0.4);
         break;
       case 'projDie':
-        if (!e.b) { this.vfx.dust((e.x ?? 0) / 1000); A.sfx('land', pan(e.x), 0.6); }
+        if (!e.b) { this.vfx.dust((e.x ?? 0) / 1000); A.sfx('land', pan(e.x), 0.6); this.propImpact(e.s ?? '', (e.x ?? 0) / 1000, 0.25); }
         break;
       case 'clash':
         this.vfx.hitSpark((e.x ?? 0) / 1000, (e.y ?? 1000) / 1000, 2, false, '#9ad8ff');

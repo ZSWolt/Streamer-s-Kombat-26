@@ -11,6 +11,7 @@
 //   grip   force how closed the hands are (0 open .. 1 fist) instead of what each pose says
 //   zoom   magnify (e.g. 3) and aim at height `at` (metres) to look at hands or a face
 //   on     with zoom: keep this joint (handL, handR, head ...) in the middle of every cell
+//   bg     background colour (hex without #)
 //   shot   save the sheet to tools/shots/<shot>.jpg through the dev server
 import * as THREE from 'three';
 import { ROSTER, fighterIndex } from '../data/roster';
@@ -59,7 +60,7 @@ async function main() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   document.body.append(renderer.domElement);
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#20222a');
+  scene.background = new THREE.Color('#' + (q.get('bg') ?? '20222a')); // bg=8a8f98 shows dark clothes
   scene.add(new THREE.HemisphereLight('#ffffff', '#404050', 1.5));
   const sun = new THREE.DirectionalLight('#ffffff', 2.2);
   sun.position.set(2, 5, 6);

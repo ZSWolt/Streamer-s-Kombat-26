@@ -7,7 +7,12 @@ export const MV = {
   jLP: 8, jHP: 9, jLK: 10, jHK: 11,
   fHP: 12, THROW: 13,
   SP0: 14, SP1: 15, SP2: 16, HYPE: 17, fLK: 18,
+  SP3: 19, // the fourth special, for the fighters that have one
 } as const;
+
+/** The move id of a fighter's special by its slot (0..3), and back. */
+export const spMove = (slot: number): number => (slot < 3 ? MV.SP0 + slot : MV.SP3);
+export const spSlot = (id: number): number => (id === MV.SP3 ? 3 : id - MV.SP0);
 
 const b = (x: number, y: number, w: number, h: number): Box => ({ x, y, w, h });
 
@@ -75,7 +80,7 @@ export function movesFor(charIdx: number): MoveDef[] {
     hitstun: n.hs, blockstun: n.bs, pushback: n.push, hitstop: n.stop, knockdown: n.kd, launch: n.launch,
     air: n.air, cancel: n.cancel ?? 'none', chainRank: n.rank, vx: n.vx, invuln: n.invuln, throw: n.key === 'THROW',
   }));
-  f.specials.forEach((sp, i) => list.push(specialMove(MV.SP0 + i, sp)));
+  f.specials.slice(0, 3).forEach((sp, i) => list.push(specialMove(MV.SP0 + i, sp)));
   list.push({
     id: MV.HYPE, key: 'HYPE', anim: 'hype', startup: 8, active: 12, recovery: 40, damage: 280, level: 'mid',
     hitbox: b(0, 0, 3400, 2200), hitstun: 60, blockstun: 30, pushback: 120, hitstop: 14, cancel: 'none', chainRank: 9,
@@ -87,6 +92,7 @@ export function movesFor(charIdx: number): MoveDef[] {
     hitbox: b(100, 650, 700 + (reach - 3) * 60, 520), hitstun: 20, blockstun: 14, pushback: 125, hitstop: 11, cancel: 'special', chainRank: 3,
     vx: [[4, 28], [11, 0]],
   });
+  if (f.specials[3]) list.push(specialMove(MV.SP3, f.specials[3]));
   cache.set(charIdx, list);
   return list;
 }

@@ -65,51 +65,123 @@ for o in parts:  # bake transforms, drop the ROOT empty
 for o in [o for o in scene.objects if o.type != 'MESH']:
     bpy.data.objects.remove(o)
 
-# Parts edited by hand in Tripo (fingers cut loose so the hand can close) leave odds and ends: a "part" that is
-# really a few scraps in different places, and parts of a triangle or two. Scraps far from each other become parts
-# of their own; crumbs are thrown away.
+# A "part" is not always one thing: parts edited by hand in Tripo (fingers cut loose so the hand can close) leave
+# scraps in different places, and Tripo itself sometimes puts a shoe in the same part as the shirt. So every part
+# is taken apart into its connected pieces, pieces that lie together stay together, and what lies somewhere else
+# becomes a part of its own. Crumbs of a triangle or two are thrown away.
 _tris = lambda o: sum(len(p.vertices) - 2 for p in o.data.polygons)
-_total = sum(_tris(o) for o in parts)
 _height = max((o.matrix_world @ v.co).z for o in parts for v in o.data.vertices)
+
+
+def _islands(o):
+    """Label every vertex with its connected piece."""
+    me = o.data
+    n = len(me.vertices)
+    e = np.empty(len(me.edges) * 2, dtype=np.int64)
+    me.edges.foreach_get('vertices', e)
+    e = e.reshape(-1, 2)
+    lab = np.arange(n)
+    while True:  # every vertex takes the lowest label around it, then follows its label's label
+        m = np.minimum(lab[e[:, 0]], lab[e[:, 1]])
+        new = lab.copy()
+        np.minimum.at(new, e[:, 0], m)
+        np.minimum.at(new, e[:, 1], m)
+        new = new[new]
+        if (new == lab).all():
+            return lab
+        lab = new
+
+
 for o in list(parts):
-    n = _tris(o)
-    if n < 40:
-        print('@@ dropped crumb', o.name, n, flush=True)
+    name = o.name
+    if _tris(o) < 40:
+        print('@@ dropped crumb', name, _tris(o), flush=True)
         parts.remove(o)
         bpy.data.objects.remove(o)
         continue
-    size = max(o.dimensions)
-    if n > 0.015 * _total or size < 0.25 * _height:
+    me = o.data
+    lab = _islands(o)
+    ids, inv, cnt = np.unique(lab, return_inverse=True, return_counts=True)
+    if len(ids) == 1:
         continue
-    for q in scene.objects:
-        q.select_set(q is o)
-    bpy.context.view_layer.objects.active = o
-    bpy.ops.mesh.separate(type='LOOSE')
-    bits = [q for q in scene.objects if q.select_get()]
-    centre = {q.name: sum((Vector(c) for c in q.bound_box), Vector()) / 8 for q in bits}
-    groups = []  # scraps closer than a twentieth of the body's height stay together
-    for q in sorted(bits, key=lambda q: -_tris(q)):
-        home = next((g for g in groups if any((centre[q.name] - centre[r.name]).length < 0.05 * _height for r in g)), None)
-        if home is not None:
-            home.append(q)
-        else:
-            groups.append([q])
-    parts.remove(o)
-    kept = 0
-    for g in groups:
-        if sum(_tris(q) for q in g) < 40:
-            for q in g:
-                bpy.data.objects.remove(q)
-            continue
+    co = np.empty(len(me.vertices) * 3, dtype=np.float64)
+    me.vertices.foreach_get('co', co)
+    co = co.reshape(-1, 3)
+    lo = np.full((len(ids), 3), 1e9)
+    hi = np.full((len(ids), 3), -1e9)
+    np.minimum.at(lo, inv, co)
+    np.maximum.at(hi, inv, co)
+    big = np.nonzero(cnt >= 20)[0]  # dust goes with whichever piece it lies in
+    if len(big) < 1:
+        continue
+    dust_lo, dust_hi, dust_ids = lo, hi, np.nonzero(cnt < 20)[0]
+    lo, hi, size = lo[big], hi[big], cnt[big]
+    # pieces whose boxes come within a fiftieth of the body's height of each other lie together
+    pad = 0.02 * _height
+    grp = np.arange(len(big))
+    changed = True
+    while changed:
+        changed = False
+        for a in range(len(big)):
+            near = ((lo <= hi[a] + pad) & (hi >= lo[a] - pad)).all(1)
+            g = grp[near].min()
+            if (grp[near] != g).any():
+                grp[np.isin(grp, grp[near])] = g
+                changed = True
+        for g in np.unique(grp):  # the boxes of the groups, for the next round
+            m = grp == g
+            lo[m], hi[m] = lo[m].min(0), hi[m].max(0)
+    groups = np.unique(grp)
+    boxes = sorted(((int(size[grp == g].sum()), lo[grp == g][0], hi[grp == g][0]) for g in groups), key=lambda b: -b[0])
+    # dust that lies in none of the pieces' boxes (a few stray triangles by a hand, in the part of the head) goes
+    near = 0.45 * pad  # the boxes are further than `pad` apart, so this much around each belongs to it alone
+    stray = [int(c) for c in dust_ids if not any(((dust_lo[c] >= b[1] - near) & (dust_hi[c] <= b[2] + near)).all() for b in boxes)]
+    if stray:
+        gone = np.isin(inv, stray)
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        bm.verts.ensure_lookup_table()
+        bmesh.ops.delete(bm, geom=[bm.verts[int(i)] for i in np.nonzero(gone)[0]], context='VERTS')
+        bm.to_mesh(me)
+        bm.free()
+        print('@@ dropped', int(gone.sum()), 'stray vertices of', name, flush=True)
+    if len(groups) == 1:
+        continue
+    kept = 1
+    for nv, glo, ghi in boxes[1:]:  # the largest group stays; the others leave one by one
         for q in scene.objects:
-            q.select_set(q in g)
-        bpy.context.view_layer.objects.active = g[0]
-        if len(g) > 1:
-            bpy.ops.object.join()
-        g[0].name = f'{o.name}_{chr(97 + kept)}' if kept else o.name
-        parts.append(g[0])
+            q.select_set(q is o)
+        bpy.context.view_layer.objects.active = o
+        me = o.data
+        cur = np.empty(len(me.vertices) * 3, dtype=np.float64)
+        me.vertices.foreach_get('co', cur)
+        cur = cur.reshape(-1, 3)
+        vm = ((cur >= glo - near) & (cur <= ghi + near)).all(1)
+        lv = np.empty(len(me.loops), dtype=np.int64)
+        me.loops.foreach_get('vertex_index', lv)
+        ls = np.empty(len(me.polygons), dtype=np.int64)
+        me.polygons.foreach_get('loop_start', ls)
+        ev = np.empty(len(me.edges) * 2, dtype=np.int64)
+        me.edges.foreach_get('vertices', ev)
+        me.vertices.foreach_set('select', vm)
+        me.edges.foreach_set('select', vm[ev.reshape(-1, 2)].all(1))
+        me.polygons.foreach_set('select', vm[lv[ls]])
+        me.update()
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.separate(type='SELECTED')
+        bpy.ops.object.mode_set(mode='OBJECT')
+        piece = next((q for q in scene.objects if q.select_get() and q is not o), None)
+        if piece is None:
+            continue
+        if nv < 30:
+            bpy.data.objects.remove(piece)
+            continue
+        piece.name = f'{name}_{chr(96 + kept)}'
+        parts.append(piece)
         kept += 1
-    print('@@ split scattered part', o.name, 'into', kept, flush=True)
+    o.name = name
+    if kept > 1:
+        print('@@ split scattered part', name, 'into', kept, flush=True)
 parts.sort(key=lambda o: o.name)
 
 
@@ -179,6 +251,12 @@ def strong(a, b):
 # head: what sits above the collar *on the centre line* (in a T-pose the arms are up at that height too)
 mid_x = float(np.median([p.c[0] for p in P]))
 head_group = [p for p in P if p.c[1] > 0.74 * H and abs(p.c[0] - mid_x) < 0.12 * H and p.hi[0] - p.lo[0] < 0.4 * H]
+# skin of the neck that runs out over a shoulder (bare shoulders under a sleeveless shirt) is no part of the head:
+# it would turn with it. It is body, and the rig lets only what lies up by the skull follow the head.
+for p in list(head_group):
+    if p.lo[1] < 0.76 * H and max(abs(p.hi[0] - mid_x), abs(p.lo[0] - mid_x)) > 0.1 * H:
+        head_group.remove(p)
+        p.cls = 'torso2'
 head = max(head_group, key=lambda p: p.tris)
 head.cls = 'head'
 # torso: the chest-height part the neck goes into (a wide trouser leg can have a bigger bounding box)
@@ -242,8 +320,15 @@ for side in ('L', 'R'):
                 p.cls, p.side = 'arm', side
             else:
                 p.cls = 'torso2'
+# Standing with the arms straight out to the sides, nothing but arm is out past the shoulders: a forearm or a hand
+# that does not quite touch the rest of its arm (a gap at a cuff, a watch in between) still belongs to it.
+far = lambda p: max(abs(p.hi[0] - mid_x), abs(p.lo[0] - mid_x))
+if any(p.cls in ('arm', 'torso2', 'acc') and p.c[1] > 0.62 * H and far(p) > 0.33 * H for p in P):
+    half = max(torso.hi[0] - mid_x, mid_x - torso.lo[0])
+    for p in P:
+        if p.cls in ('arm', 'torso2', 'acc') and abs(p.c[0] - mid_x) > half and p.c[1] > 0.6 * H:
+            p.cls, p.side = 'arm', 'L' if p.c[0] > mid_x else 'R'
 # a hand cut into palm and fingers is a string of small parts: whatever hangs on an arm is arm
-limb = {p.name for p in P if p.cls == 'arm'}  # the arm proper: sleeve, forearm
 front = [p for p in P if p.cls == 'arm']
 while front:
     cur = front.pop()
@@ -266,12 +351,26 @@ for p in P:
 # cloud of points each) and welded back onto the palm: one hand, one skin.
 FINGERS, finger_pts = {}, {}
 for side in ('L', 'R'):
-    small = [p for p in P if p.cls == 'arm' and p.side == side and p.name not in limb]
-    palms = [p for p in small if any(iface(p, q) for q in P if q.name in limb)]
-    if not palms or len(small) < 2:
+    arm = [p for p in P if p.cls == 'arm' and p.side == side]
+    if not arm:
         continue
-    palm = max(palms, key=lambda p: p.tris)
-    pieces = [p for p in small if p is not palm and iface(palm, p)]
+    # The hand is at the end of the arm: the part that reaches farthest out, and the small parts joined to it (a
+    # finger cut in two hangs on its other half, not on the palm). Cuffs and sleeves further up are not hand.
+    out = lambda p: float(np.linalg.norm(p.s - torso.c, axis=1).max())
+    tip = max(arm, key=out)
+    if tip.diag >= 0.2 * H:  # hand and forearm are one part: nothing to put together
+        continue
+    near = [p for p in arm if p.diag < 0.2 * H and out(p) > out(tip) - 0.16 * H]
+    hand, front = [tip], [tip]
+    while front:
+        cur = front.pop()
+        for p in near:
+            if p not in hand and iface(cur, p):
+                hand.append(p)
+                front.append(p)
+    palm = max(hand, key=lambda p: p.tris)
+    palm.fingers = True  # a hand keeps enough triangles for its fingers to bend, cut loose or not
+    pieces = [p for p in hand if p is not palm]
     if not pieces:
         continue
     FINGERS[palm.name] = []
@@ -304,7 +403,7 @@ for side in ('L', 'R'):
 budget_w = {p.name: (p.tris ** 0.8) * (2.6 if p.cls == 'head' else 2.4 if getattr(p, 'fingers', False) else 1.25 if p.cls == 'arm' else 1.0) for p in P}
 bw = sum(budget_w.values())
 for p in P:
-    want = max(1200, TARGET_TRIS * budget_w[p.name] / bw)
+    want = max(6500 if getattr(p, 'fingers', False) else 1200, TARGET_TRIS * budget_w[p.name] / bw)  # fingers need the triangles
     ratio = min(1.0, want / max(1, p.tris))
     o = p.o
     bpy.context.view_layer.objects.active = o

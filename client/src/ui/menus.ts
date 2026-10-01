@@ -162,7 +162,7 @@ export class Menus {
     const keys: [string, string][] = [
       ['תנועה (פעמיים = דאש)', `${K('left')}/${K('right')} • ←/→`], ['קפיצה / התכופפות', `${K('up')}/${K('down')} • ↑/↓`],
       ['אגרופים', `${K('lp')} • ${K('hp')}`], ['בעיטות', `${K('lk')} • ${K('hk')}`], ['הגנה', KA('block')],
-      ['הטלה', throwInput()], ['מהלך מיוחד', `${spInput('U')} • ${spInput('FU')} • ${spInput('DU')}`], ['מהלך הייפ (מד מלא)', hypeInput()], ['הפסקה', KA('start')],
+      ['הטלה', throwInput()], ['מהלך מיוחד', `${spInput('U')} • ${spInput('FU')} • ${spInput('DU')} • ${spInput('BU')}`], ['מהלך הייפ (מד מלא)', hypeInput()], ['הפסקה', KA('start')],
     ];
     const controls = h('div', { class: 'side-panel left controls-panel' }, [
       h('div', { class: 'pad-rec' }, [h('span', { class: 'pad-ico' }, ['🎮']), h('span', {}, ['מומלץ לשחק עם בקר'])]),

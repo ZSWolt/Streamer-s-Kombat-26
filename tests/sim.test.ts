@@ -150,9 +150,30 @@ describe('simulation', () => {
     expect(m.f[0].st).toBe(9);
   });
 
+  it('back + special is the fourth special of the fighters that have one', () => {
+    const four = ROSTER.findIndex((f) => f.specials.length > 3), three = ROSTER.findIndex((f) => f.specials.length === 3);
+    const use = (c: number) => {
+      const m = createMatch(cfg({ chars: [c, 0], roundTime: 0 }));
+      toFight(m);
+      m.f[0].x = -2500; m.f[1].x = 2500;
+      step(m, [C.IN_LEFT, 0]);
+      step(m, [C.IN_LEFT | C.IN_SP, 0]);
+      step(m, [0, 0]);
+      return m.f[0];
+    };
+    expect(four).toBeGreaterThanOrEqual(0);
+    const f = use(four);
+    expect(f.move).toBe(19);
+    expect(f.cd3).toBeGreaterThan(0);
+    expect(f.cd0).toBe(0);
+    const g = use(three); // with three specials, back + special is the plain one
+    expect(g.move).toBe(14);
+    expect(g.cd3).toBe(0);
+  });
+
   it('every special can be performed without errors', () => {
     for (let c = 0; c < ROSTER.length; c++) {
-      for (const dir of [0, C.IN_RIGHT, C.IN_DOWN]) {
+      for (const dir of [0, C.IN_RIGHT, C.IN_DOWN, C.IN_LEFT]) {
         const m = createMatch(cfg({ chars: [c, 0] }));
         toFight(m);
         m.f[0].x = -600; m.f[1].x = 600;

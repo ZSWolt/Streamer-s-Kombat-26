@@ -3,7 +3,7 @@ import { FLAVOR } from '../data/flavor';
 import { ROSTER } from '../data/roster';
 import * as C from '../sim/constants';
 import { specialWait } from '../sim/match';
-import { MV, movesFor } from '../sim/moves';
+import { movesFor, spMove } from '../sim/moves';
 import type { MatchState } from '../sim/types';
 import { clear, h } from './dom';
 import { portraitUrl } from './portraits';
@@ -58,7 +58,7 @@ export class Hud {
       meterBar.append(meterFill);
       // special moves: each chip empties when its move is used and refills as the cooldown runs out
       const cdRow = h('div', { class: 'hud-cds' });
-      const cds = [0, 1, 2].map(() => {
+      const cds = [0, 1, 2, 3].map(() => {
         const fillEl = h('i'), lbl = h('b');
         const el = h('div', { class: 'hud-cd' }, [fillEl, lbl]);
         cdRow.append(el);
@@ -105,7 +105,7 @@ export class Hud {
       clear(name);
       name.append(stone(f.he), h('span', { class: 'en' }, [f.title]));
       this.names[p] = f.he;
-      f.specials.forEach((sp, i) => { this.bars[p].cds[i].lbl.textContent = sp.name; });
+      this.bars[p].cds.forEach((c, i) => { c.lbl.textContent = f.specials[i]?.name ?? ''; c.el.style.display = f.specials[i] ? '' : 'none'; });
     }
     this.renderWins(m);
   }
@@ -133,9 +133,9 @@ export class Hud {
       b.meter.parentElement!.parentElement!.classList.toggle('full', mv >= 1);
       b.meterLbl.textContent = mv >= 1 ? `HYPE! ${hypeInput()}` : `HYPE TRAIN LV.${Math.floor(mv * 4) + 1}`;
       const moves = movesFor(f.char);
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < ROSTER[f.char].specials.length; i++) {
         const wait = specialWait(m, p, i);
-        const k = Math.min(1, wait / (moves[MV.SP0 + i].cooldown ?? 90));
+        const k = Math.min(1, wait / (moves[spMove(i)].cooldown ?? 90));
         const c = b.cds[i];
         if (k !== c.k) { c.k = k; c.fill.style.transform = `scaleX(${k})`; c.el.classList.toggle('wait', wait > 0); }
       }

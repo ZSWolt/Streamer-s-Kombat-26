@@ -863,7 +863,9 @@ for s in 'LR':
     chord = tip - first
     dev = max(float(np.linalg.norm((q - first) - chord * ((q - first) @ chord) / (chord @ chord))) for q in line)
     ax = norm(chord)
-    arm_straight[s] = dev < 0.05 * H and abs(ax[0]) > 0.35 and OVR.get('straightArms', True)
+    # (a thick sleeve pulls the centre line about; a model standing with its arms out still has straight arms)
+    arm_straight[s] = dev < (0.09 if STANDING else 0.05) * H and abs(ax[0]) > 0.35 and OVR.get('straightArms', True)
+    log(f'arm {s}: centre line strays {dev / H:.3f}H from straight')
     if arm_straight[s]:
         sg = 1.0 if s == 'L' else -1.0
         up_ax = norm(line[max(2, len(line) // 3)] - first)  # the way the upper arm runs
@@ -980,6 +982,17 @@ def frames_of(J, head_rot, hips_up):
     return F
 
 
+def drop_shoulders(NP):
+    """Arms held straight out lift the shoulders (the collar bones swing up); brought down for the rest pose they
+    come back down. There is no collar bone in the rig, so the arms are simply set this much lower, and the skin
+    between the neck and the shoulder, shared between chest and arm, slopes down to them instead of standing
+    square like a shoulder pad."""
+    if STANDING:
+        for s in 'LR':
+            for b in ('arm', 'fore', 'hand'):
+                NP[b + s] = NP[b + s] - np.array([0.0, OVR.get('shoulderDrop', 0.0) * H, 0.0])
+
+
 star = frames_of(J, rot_y(OVR.get('headYaw', 0)) @ rot_x(OVR.get('headPitch', 0)), pelvis_up)
 NEUTRAL = {b: np.eye(3) for b in BONES}
 for s, sg in (('L', 1), ('R', -1)):
@@ -990,6 +1003,7 @@ leg_len = sum(np.linalg.norm(J['thigh' + s] - J['shin' + s]) + np.linalg.norm(J[
 NP = {'hips': np.array([0.0, leg_len + (J['footL'][1] + J['footR'][1]) / 2, 0.0])}
 for b in BONES[1:]:
     NP[b] = NP[PARENT[b]] + D[PARENT[b]] @ (J[b] - J[PARENT[b]])
+drop_shoulders(NP)
 for k, b in (('tipL', 'handL'), ('tipR', 'handR'), ('toeL', 'footL'), ('toeR', 'footR')):
     NP[k] = NP[b] + D[b] @ (J[k] - J[b])
 NP['headTop'] = NP['head'] + D['head'] @ (head_top - J['head'])
@@ -1089,11 +1103,18 @@ def capsules(JJ, top, radii, holes, up):
         'pelvis': [bar, crest, (JJ['hips'], JJ['hips'] + up * 0.3 * H, rt)],  # trousers: all of the waistband
         'spine': [(JJ['spine'], JJ['chest'], radii['trunk'])],
         'chest': [(JJ['chest'], JJ['neck'], radii['trunk'])],
-        'head': [(JJ['head'], top, 0.1 * H)]}
+        'head': [(JJ['head'], top, 0.1 * H)],
+        # for skin that belongs to the body but reaches up the neck: only what lies by the skull follows the head
+        'skull': [(JJ['head'] + (top - JJ['head']) * 0.3, top, 0.085 * H)]}
     for s in 'LR':
         caps['clav' + s] = [(ctop, JJ['arm' + s], radii['arm' + s] * 1.25)]
         caps['arm' + s] = [(JJ['arm' + s], JJ['fore' + s], radii['arm' + s])]
-        caps['sleeve' + s] = [(JJ['arm' + s], holes[s]['c'], holes[s]['r'] * 1.15)]
+        # the part of a shirt that lies over the upper arm goes with the arm: at least a third of the way to the
+        # elbow, however short the sleeve (the shoulder of a sleeveless shirt would otherwise stay up like a wing)
+        ua = JJ['fore' + s] - JJ['arm' + s]
+        ul = float(np.linalg.norm(ua))
+        reach = max(float((holes[s]['c'] - JJ['arm' + s]) @ ua) / max(ul, 1e-6), OVR.get('sleeveReach', 0.0) * ul) if STANDING else None
+        caps['sleeve' + s] = [(JJ['arm' + s], JJ['arm' + s] + ua / max(ul, 1e-6) * reach if STANDING else holes[s]['c'], holes[s]['r'] * 1.15)]
         caps['fore' + s] = [(JJ['fore' + s], JJ['hand' + s], radii['fore' + s])]
         caps['hand' + s] = [(JJ['hand' + s], JJ['tip' + s], radii['hand' + s])]
         caps['thigh' + s] = [(JJ['thigh' + s], JJ['shin' + s], radii['thigh'])]
@@ -1103,12 +1124,15 @@ def capsules(JJ, top, radii, holes, up):
 
 
 # which bone each capsule belongs to
-CAP_BONE = {'clavL': 'chest', 'clavR': 'chest', 'sleeveL': 'armL', 'sleeveR': 'armR', 'pelvis': 'hips'}
+CAP_BONE = {'clavL': 'chest', 'clavR': 'chest', 'sleeveL': 'armL', 'sleeveR': 'armR', 'pelvis': 'hips', 'skull': 'head'}
 
 
 def candidates(p):
-    if p.cls in ('torso', 'torso2'):
-        return ['hips', 'spine', 'chest', 'clavL', 'clavR', 'sleeveL', 'sleeveR', 'thighL', 'thighR']
+    if p.cls == 'torso':
+        # a shirt with sleeves follows the arms around the seam; a sleeveless one has nothing out there that should
+        return ['hips', 'spine', 'chest', 'clavL', 'clavR'] + ['sleeve' + s for s in 'LR' if not SLEEVELESS[s]] + ['thighL', 'thighR']
+    if p.cls == 'torso2':
+        return ['hips', 'spine', 'chest', 'clavL', 'clavR', 'sleeveL', 'sleeveR', 'thighL', 'thighR', 'skull']
     if p.cls == 'arm':
         return ['clav' + p.side, 'arm' + p.side, 'fore' + p.side, 'hand' + p.side]
     if p.cls == 'leg':
@@ -1253,6 +1277,25 @@ def compute_weights(get_verts, body):
                     W[mask] = (acc / cnt)[mask]
                 W /= W.sum(1, keepdims=True)
         out[p.name] = W
+    if STANDING and OVR.get('seamShoulders', True):
+        # A sleeve (or a bare arm) grows out of the body: where it meets the trunk it takes the trunk's own weights,
+        # so the two sides of the seam move as one, and nothing opens between them or swings out of the armhole.
+        # A few fingers' breadth along the arm it is all arm again.
+        tv = [get_verts(q) for q in P if q.cls in ('torso', 'torso2')]
+        tw = [out[q.name] for q in P if q.cls in ('torso', 'torso2')]
+        if tv:
+            tv, tw = np.concatenate(tv), np.concatenate(tw)
+            tree = kd(tv)
+            for p in P:
+                if p.cls != 'arm':
+                    continue
+                v, W = get_verts(p), out[p.name]
+                S = body['caps']['arm' + p.side][0][0]
+                for i in np.nonzero(np.linalg.norm(v - S, axis=1) < 0.1 * H)[0]:
+                    _, j, dist = tree.find(Vector(v[i]))
+                    k = 1 - float(smooth(0.004 * H, 0.03 * H, dist))
+                    if k > 0:
+                        W[i] = (1 - k) * W[i] + k * tw[j]
     return out
 
 
@@ -1294,6 +1337,41 @@ def pts_sculpt(cls, side):
     return np.concatenate([p.s for p in P if p.cls == cls and (side is None or p.side == side)])
 
 
+SLEEVELESS = {'L': False, 'R': False}
+if STANDING:
+    for s_, sg_ in (('L', 1.0), ('R', -1.0)):
+        S_ = J['arm' + s_]
+        tv_ = np.concatenate([verts_gl(p.o) for p in P if p.cls == 'torso'])
+        band = tv_[np.abs(tv_[:, 1] - S_[1]) < 0.05 * H]
+        out_ = float(((band[:, 0] - J['neck'][0]) * sg_).max()) if len(band) else 0.0
+        SLEEVELESS[s_] = out_ < abs(S_[0] - J['neck'][0]) + 0.02 * H
+    both_ = bool(SLEEVELESS['L'] and SLEEVELESS['R'])  # a shirt has two sleeves or none
+    SLEEVELESS = {'L': both_, 'R': both_}
+    if both_:
+        log('sleeveless shirt (or one whose sleeves start at the shoulder joint)')
+    # The membrane that closes a shirt's armhole is hidden inside the arm while the arm is held straight out; with
+    # the arm down it would stand above the shoulder like a wing. Push it into the body, out of sight.
+    for p in P:
+        me_ = p.o.data
+        if p.cls != 'torso' or 'patch' not in me_.attributes:
+            continue
+        v_ = verts_gl(p.o)
+        flag_ = np.zeros(len(v_), dtype=np.int32)
+        me_.attributes['patch'].data.foreach_get('value', flag_)
+        mask_ = flag_ > 0
+        if not mask_.any() or mask_.all():
+            continue
+        tree_ = kd(v_[~mask_])
+        moved_ = 0
+        for s_, sg_ in (('L', 1.0), ('R', -1.0)):
+            sel_ = np.nonzero(mask_ & (np.linalg.norm(v_ - J['arm' + s_], axis=1) < 0.1 * H))[0]
+            for i_ in sel_:
+                d_ = tree_.find(Vector(v_[i_]))[2]
+                v_[i_, 0] -= sg_ * 0.045 * H * float(smooth(0.0, 0.025 * H, d_))
+            moved_ += len(sel_)
+        if moved_:
+            set_verts_gl(p.o, v_)
+            log(f'armhole membranes pushed in: {moved_} vertices of {p.name}')
 radii = measure_radii(J, pts_sculpt)
 log('radii (sculpt)', {k: round(v / H, 3) for k, v in radii.items()})
 W0 = compute_weights(lambda p: verts_gl(p.o), capsules(J, head_top, radii, hole, pelvis_up))
@@ -1419,6 +1497,7 @@ leg_len = sum(np.linalg.norm(J['thigh' + s] - J['shin' + s]) + np.linalg.norm(J[
 NP = {'hips': np.array([0.0, leg_len + (J['footL'][1] + J['footR'][1]) / 2, 0.0])}
 for b in BONES[1:]:
     NP[b] = NP[PARENT[b]] + D[PARENT[b]] @ (J[b] - J[PARENT[b]])
+drop_shoulders(NP)
 for k, b in (('tipL', 'handL'), ('tipR', 'handR'), ('toeL', 'footL'), ('toeR', 'footR')):
     NP[k] = NP[b] + D[b] @ (J[k] - J[b])
 NP['headTop'] = NP['head'] + D['head'] @ (head_top - J['head'])
@@ -1586,27 +1665,105 @@ def arc(a, b):
     return k / sn, math.atan2(sn, float(a @ b))
 
 
+def finger_branches(o, v, wrist, ax):
+    """The fingers of a hand, found on the mesh itself (however the sculpt was cut into parts).
+
+    Walking over the skin from the wrist, the fingertips are the places farthest away. Coming back down from them,
+    each finger is a patch of skin of its own until it meets its neighbour at the web between them: what a patch
+    holds at that moment is the finger. Returns the hand's length and the vertices of every finger.
+    """
+    me = o.data
+    n = len(v)
+    e = np.empty(len(me.edges) * 2, dtype=np.int64)
+    me.edges.foreach_get('vertices', e)
+    e = e.reshape(-1, 2)
+    t = (v - wrist) @ ax
+    hl = float(t.max())
+    live = t > 0
+    adj = [[] for _ in range(n)]
+    for (a, b), l in zip(e.tolist(), np.linalg.norm(v[e[:, 0]] - v[e[:, 1]], axis=1).tolist()):
+        if live[a] and live[b]:
+            adj[a].append((b, l))
+            adj[b].append((a, l))
+    g = np.full(n, np.inf)  # how far over the skin from the wrist
+    heap = []
+    t0 = float(t[live].min())  # where the hand's skin begins (its part may start a little past the wrist joint)
+    for i in np.nonzero(live & (t < t0 + 0.08 * (hl - t0)))[0].tolist():
+        g[i] = float(t[i])
+        heap.append((g[i], i))
+    heapq.heapify(heap)
+    while heap:
+        d, i = heapq.heappop(heap)
+        if d > g[i]:
+            continue
+        for j, l in adj[i]:
+            if d + l < g[j]:
+                g[j] = d + l
+                heapq.heappush(heap, (d + l, j))
+    parent = np.full(n, -1)
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    born, members, shut, found = {}, {}, {}, []
+    keep = 0.13 * hl  # a finger stands at least this far out of the hand
+
+    def close(r, level):
+        if not shut[r] and born[r] - level >= keep and len(members[r]) >= 20:
+            found.append(np.array(members[r]))
+            return True
+        return False
+
+    for i in [int(k) for k in np.argsort(-np.where(np.isfinite(g), g, -1.0)) if np.isfinite(g[k])]:
+        roots = sorted({find(j) for j, _ in adj[i] if parent[j] >= 0}, key=lambda r: -born[r])
+        if not roots:
+            parent[i] = i
+            born[i], members[i], shut[i] = float(g[i]), [i], False
+            continue
+        main = roots[0]
+        for r in roots[1:]:
+            if close(r, g[i]) or shut[r]:  # a finger (or several, already told apart) meets this one: both end here
+                close(main, g[i])
+                shut[main] = True
+            parent[r] = main
+            members[main] += members.pop(r)
+        parent[i] = main
+        members[main].append(i)
+    log(f'hand skin: {int(live.sum())} vertices past the wrist, {int(np.isfinite(g).sum())} reached from it, {len(born)} tips, '
+        f'{len(found)} fingers; hand {hl / H:.3f}H')
+    if not found:  # a mitten, or a hand modelled as one lump: everything past the knuckles bends as one finger
+        lump = np.nonzero(live & (t > 0.56 * hl))[0]
+        if len(lump) >= 20:
+            found.append(lump)
+    return hl, found
+
+
 def rig_fingers():
     for s, sg in (('L', 1.0), ('R', -1.0)):
-        hand = next((q for q in P if q.cls == 'arm' and q.side == s and q.name in meta.get('fingers', {})), None)
-        if hand is None:
-            continue
         wrist, tip = NP['hand' + s], NP['tip' + s]
         ax = norm(tip - wrist)
+        arm_parts = [q for q in P if q.cls == 'arm' and q.side == s]
+        if not arm_parts:
+            continue
+        hand = max(arm_parts, key=lambda q: float(((cur[q.name] - wrist) @ ax).max()))  # the part the fingertips are on
         v = cur[hand.name]
-        to_rest = lambda x: NP['hand' + s] + (x - J['hand' + s]) @ D['hand' + s].T  # the hand moved as one piece
-        clouds = [to_rest(SAMPLES[k].astype(np.float64)) for k in meta['fingers'][hand.name]]
-        # which finger each vertex of the hand belongs to (-1 = the palm): the cloud it lies on
+        hl, branches = finger_branches(hand.o, v, wrist, ax)
+        if not branches or hl < 0.04 * H:
+            log(f'fingers {s}: none found (hand {hl / H:.3f}H)')
+            continue
+        live = (v - wrist) @ ax > 0
+        clouds = [v[b] for b in branches]
+        # which finger each vertex of the hand belongs to (-1 = the palm), and how far it is from every finger
         member = np.full(len(v), -1)
-        near = np.full(len(v), 0.004 * H)
         dist = []
-        for k, c in enumerate(clouds):
-            tr = kd(c)
-            dk = np.array([tr.find(Vector(x))[2] for x in v])
-            dist.append(dk)
-            member = np.where(dk < near, k, member)
-            near = np.minimum(near, dk)
-        palm_v = v[member < 0]
+        for k, b in enumerate(branches):
+            member[b] = k
+            tr = kd(clouds[k])
+            dist.append(np.array([tr.find(Vector(x))[2] for x in v]))
+        palm_v = v[(member < 0) & live]
         pc = palm_v.mean(0)
         n = np.linalg.svd(palm_v - pc, full_matrices=False)[2][2]
         n = norm(n - ax * (n @ ax))
@@ -1619,10 +1776,13 @@ def rig_fingers():
             if d @ (cc - pc) < 0:
                 d = -d
             t = (c - cc) @ d
-            pieces.append({'k': k, 'pts': c, 'd': d, 'base': cc + d * t.min(), 'len': float(t.max() - t.min()), 'off': float(math.acos(np.clip(d @ ax, -1, 1)))})
+            pieces.append({'k': k, 'pts': c, 'd': d, 'base': cc + d * t.min(), 'len': float(t.max() - t.min()), 'off': float(math.acos(np.clip(d @ ax, -1, 1))),
+                           'low': float((cc + d * t.min() - wrist) @ ax)})
+        # the thumb: the one that points away from the others, or failing that the one that starts nearest the wrist
         thumb = max(pieces, key=lambda f: f['off'])
-        if thumb['off'] < 0.4:
-            thumb = None
+        if thumb['off'] < 0.4 or len(pieces) < 2:
+            lowest = min(pieces, key=lambda f: f['low'])
+            thumb = lowest if len(pieces) >= 4 and lowest['low'] < 0.45 * hl else None
         W = np.zeros((len(v), 0))
         names_all, knuckles = [], []
         across = norm(np.cross(ax, n))  # from one side of the hand to the other, along the knuckles
@@ -1672,7 +1832,6 @@ def rig_fingers():
                 # Where that is follows from how the fingers curl; the three turns are the ones that take it there.
                 # The piece may have been cut off anywhere (with the whole ball of the thumb, or without), so the
                 # joints are measured back from the tip, in hand lengths, and not from the cut.
-                hl = float(np.linalg.norm(tip - wrist))
                 free = min(OVR.get('thumbFree', 0.36) * hl, L)  # from where the thumb leaves the hand to its tip
                 tm = L - free
                 ti = tm + 0.53 * free
@@ -1764,6 +1923,7 @@ def rig_fingers():
             parts = [1 - kn['sb'], kn['sb'] * (1 - kn['sc']), kn['sb'] * kn['sc']] if kn['thumb'] else [1.0]
             for i, part in enumerate(parts):
                 W[:, kn['col'] + i] = np.where(palm_m, mine * part, W[:, kn['col'] + i])
+        W[~live] = 0
         share = np.clip(W.sum(1), 0, 1)
         o = hand.o
         gname = {g.index: g.name for g in o.vertex_groups}

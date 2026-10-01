@@ -50,7 +50,7 @@ export interface SpecialSpec {
 }
 
 export interface SpecialDef {
-  input: 'U' | 'FU' | 'DU';
+  input: 'U' | 'FU' | 'DU' | 'BU'; // special button alone, with forward, with down, with back
   name: string; // Hebrew
   en: string;
   anim: string;
@@ -156,7 +156,7 @@ export interface FighterState {
   idleFrames: number;
   crouched: boolean; // hit/blocked while crouching
   /** frames before each special can be used again */
-  cd0: number; cd1: number; cd2: number;
+  cd0: number; cd1: number; cd2: number; cd3: number;
   /** anti-spam memory: the last two different moves and how often each has just been repeated */
   lastMove: number; lastN: number; prevMove: number; prevN: number;
   /** frames until that memory clears */

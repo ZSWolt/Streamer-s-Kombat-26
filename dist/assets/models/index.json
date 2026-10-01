@@ -1,15 +1,15 @@
 {
  "odedsvr": {
   "file": "odedsvr.glb",
-  "v": "41d97fe3"
+  "v": "76a643c9"
  },
  "igz": {
   "file": "igz.glb",
-  "v": "2abee8c1"
+  "v": "e0d16bbc"
  },
  "inde": {
   "file": "inde.glb",
-  "v": "14934e15"
+  "v": "9767640a"
  },
  "philip": {
   "file": "philip.glb",
@@ -17,7 +17,7 @@
  },
  "ronengg": {
   "file": "ronengg.glb",
-  "v": "2f0e81c6"
+  "v": "675c5d71"
  },
  "adam": {
   "file": "adam.glb",
@@ -25,22 +25,34 @@
  },
  "psyqr": {
   "file": "psyqr.glb",
-  "v": "77f7f536"
+  "v": "45642bcc"
  },
  "liorslife": {
   "file": "liorslife.glb",
-  "v": "55e9f30a"
+  "v": "ca36436c"
  },
  "devidtur": {
   "file": "devidtur.glb",
-  "v": "5f61ca27"
+  "v": "11ed6147"
  },
  "maorameleh": {
   "file": "maorameleh.glb",
-  "v": "2ba8f046"
+  "v": "6bb8be27"
  },
  "shilo": {
   "file": "shilo.glb",
-  "v": "3d6282e1"
+  "v": "b7b6ab05"
+ },
+ "masterohad": {
+  "file": "masterohad.glb",
+  "v": "8a3b172b"
+ },
+ "pedrofederer": {
+  "file": "pedrofederer.glb",
+  "v": "51a02446"
+ },
+ "shotist": {
+  "file": "shotist.glb",
+  "v": "df121bbc"
  }
 }

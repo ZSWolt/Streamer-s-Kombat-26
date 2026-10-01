@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { agoraCoin, agorotShower, cardPack, indeProduct, pokerChip, subathonBoard } from './props';
+import { agoraCoin, agorotShower, bud, cardPack, cluster, guitar, indeProduct, lettuce, perfumeBottle, pokerChip, subathonBoard, wineBottle } from './props';
 import { canvasTex } from './textures';
 
 // Emoji billboards give every projectile/prop an instantly readable "chat emote" look.
@@ -61,10 +61,10 @@ export const PROJECTILE_EMOJI: Record<string, string> = {
   microwave: '📦', tornado: '🌪️', headset: '🎧', noobs: '🤓', zzz: '💤', car: '🚗', shockwave: '💥', bomb: '💣',
   hypno: '🌀', cards: '🃏', snipe: '🃏', quake: '💥', football: '⚽', pctower: '🖥️', cake: '🎂', dice: '🎲',
   scream: '📢', concards: '🃏', chips: '🪙', indegear: '🎧', subathon: '⏱️', bottle: '🍾',
-  agorot: '🪙', coinroll: '🪙', coinrain: '🪙',
+  agorot: '🪙', coinroll: '🪙', coinrain: '🪙', creep: '🎸', wine: '🍷', perfume: '🧴', lettuce: '🥬', batza: '🍃',
 };
 /** projectiles drawn as real 3D props (render/props.ts) instead of emoji billboards */
-const PROP_KEYS = new Set(['concards', 'chips', 'indegear', 'subathon', 'agorot', 'coinroll', 'coinrain']);
+const PROP_KEYS = new Set(['concards', 'chips', 'indegear', 'subathon', 'agorot', 'coinroll', 'coinrain', 'creep', 'wine', 'perfume', 'lettuce', 'batza']);
 
 interface Particle {
   obj: THREE.Object3D;
@@ -215,16 +215,29 @@ export class Vfx {
       const flip = p.vx < 0 ? -1 : 1;
       const prop = o.userData.prop as (THREE.Object3D & { tick?: (t: number) => void }) | undefined;
       if (prop) {
-        const ph = p.id * 1.7, a = t * 60; // tumble in the air, each one out of phase with the others
-        if (key === 'concards') prop.rotation.set(0, Math.sin(a * 0.09 + ph) * 0.7, flip * (a * 0.13 + ph));
-        else if (key === 'chips') prop.rotation.set(Math.sin(a * 0.05 + ph) * 0.5, a * 0.21 + ph, flip * a * 0.04);
-        else if (key === 'indegear') prop.rotation.set(a * 0.06 + ph, a * 0.09, flip * a * 0.05);
-        else if (key === 'agorot') prop.rotation.set(a * 0.17 + ph, a * 0.23 + ph * 2, flip * a * 0.05);
-        else if (key === 'coinroll') prop.rotation.set(0, Math.sin(a * 0.05) * 0.25 + 0.35, -p.x / (p.h / 2)); // rolls: turn = distance / radius
-        else if (key === 'coinrain') {
+        const a = t * 60; // tumble in the air, each one out of phase with the others
+        const tumble = (o3: THREE.Object3D, ph: number) => {
+          if (key === 'concards') o3.rotation.set(0, Math.sin(a * 0.09 + ph) * 0.7, flip * (a * 0.13 + ph));
+          else if (key === 'chips') o3.rotation.set(Math.sin(a * 0.05 + ph) * 0.5, a * 0.21 + ph, flip * a * 0.04);
+          else if (key === 'indegear') o3.rotation.set(a * 0.06 + ph, a * 0.09, flip * a * 0.05);
+          else if (key === 'agorot') o3.rotation.set(a * 0.17 + ph, a * 0.23 + ph * 2, flip * a * 0.05);
+          else if (key === 'coinroll') o3.rotation.set(0, Math.sin(a * 0.05) * 0.25 + 0.35, -p.x / (p.h / 2)); // rolls: turn = distance / radius
+          else if (key === 'creep') o3.rotation.set(0.25, Math.sin(a * 0.05) * 0.3, -flip * (a * 0.16 + ph)); // end over end
+          else if (key === 'wine') o3.rotation.set(0.15, a * 0.02, -flip * (a * 0.2 + ph));
+          else if (key === 'perfume') o3.rotation.set(Math.sin(a * 0.06 + ph) * 0.4, a * 0.1 + ph, -flip * a * 0.11);
+          else if (key === 'lettuce') o3.rotation.set(a * 0.07 + ph, a * 0.11 + ph, 0);
+          else if (key === 'batza') o3.rotation.set(a * 0.09 + ph, a * 0.13, flip * a * 0.06 + ph);
+          else o3.rotation.set(Math.sin(a * 0.05) * 0.08, Math.sin(a * 0.04) * 0.18, Math.sin(a * 0.07) * 0.06);
+        };
+        if (key === 'coinrain') {
           for (const c of prop.children) { const sp = c.userData.spin as number[]; c.rotation.set(a * 0.05 * sp[0] + sp[2], a * 0.05 * sp[1], sp[2]); }
+        } else if (prop.userData.cluster) {
+          for (const c of prop.children) tumble(c, p.id * 1.7 + (c.userData.ph as number));
+        } else tumble(prop, p.id * 1.7);
+        if (key === 'creep' && t - ((o.userData.note as number) ?? 0) > 0.16) { // the guitar leaves a trail of notes
+          o.userData.note = t;
+          this.emote(p.x / 1000 - flip * 0.3, p.y / 1000 + 0.2, Math.random() < 0.5 ? '🎵' : '🎶', 0.34);
         }
-        else prop.rotation.set(Math.sin(a * 0.05) * 0.08, Math.sin(a * 0.04) * 0.18, Math.sin(a * 0.07) * 0.06);
         prop.tick?.(t);
       }
       const spr = o.userData.sprite as THREE.Sprite | undefined;
@@ -252,16 +265,23 @@ export class Vfx {
     const g = new THREE.Group();
     const size = Math.max(w, h);
     let prop: THREE.Object3D;
-    if (key === 'concards') { prop = cardPack(); prop.scale.setScalar(size * 1.3); }
-    else if (key === 'chips') { prop = pokerChip(Number(vfx.split(':')[1] ?? 1 + (id % 6))); prop.scale.setScalar(size * 1.15); }
+    // thrown by the handful: a few packs, a few chips of each value, a few coins at a time
+    if (key === 'concards') { prop = cluster(() => cardPack(), 3, 0.34, 0.72); prop.scale.setScalar(size * 1.5); }
+    else if (key === 'chips') { const v = Number(vfx.split(':')[1] ?? 1 + (id % 6)); prop = cluster(() => pokerChip(v), 4, 0.42, 0.6); prop.scale.setScalar(size * 1.5); }
     else if (key === 'indegear') { prop = indeProduct(id); prop.scale.setScalar(size * 1.45); }
-    else if (key === 'agorot') { prop = agoraCoin(id); prop.scale.setScalar(size * 1.2); }
+    else if (key === 'agorot') { prop = cluster((i) => agoraCoin(id + i), 3, 0.4, 0.66); prop.scale.setScalar(size * 1.5); }
+    else if (key === 'creep') { prop = guitar(); prop.scale.setScalar(size * 1.55); }
+    else if (key === 'wine') { prop = wineBottle(); prop.scale.setScalar(size * 1.35); }
+    else if (key === 'perfume') { prop = perfumeBottle(id); prop.scale.setScalar(size * 1.2); }
+    else if (key === 'lettuce') { prop = lettuce(); prop.scale.setScalar(size * 1.15); }
+    else if (key === 'batza') { prop = cluster((i) => bud(id + i), 2, 0.3, 0.8); prop.scale.setScalar(size * 1.35); }
     else if (key === 'coinroll') { prop = agoraCoin(0); prop.scale.setScalar(size); }
     else if (key === 'coinrain') { prop = agorotShower(); prop.scale.setScalar(size * 1.5); }
     else { prop = subathonBoard(); prop.scale.setScalar(size * 1.9); }
     if (key !== 'subathon' && key !== 'coinrain') {
       const coin = key === 'chips' || key === 'agorot' || key === 'coinroll';
-      const halo = this.sprite(this.sparkTex, key === 'indegear' ? '#27a6ff' : coin ? '#ffd27a' : '#ff5fd2', size * 1.7);
+      const glow: Record<string, string> = { indegear: '#27a6ff', creep: '#ffb347', wine: '#c2183a', perfume: '#d58cff', lettuce: '#8ee05a', batza: '#6fd040' };
+      const halo = this.sprite(this.sparkTex, glow[key] ?? (coin ? '#ffd27a' : '#ff5fd2'), size * 1.7);
       halo.material.opacity = 0.2;
       halo.position.z = -0.15;
       g.add(halo);

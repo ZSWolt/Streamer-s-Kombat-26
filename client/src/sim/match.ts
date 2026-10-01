@@ -1,7 +1,7 @@
 import { ROSTER } from '../data/roster';
 import { FLAVOR } from '../data/flavor';
 import * as C from './constants';
-import { MV, movesFor, totalFrames } from './moves';
+import { MV, movesFor, spMove, totalFrames } from './moves';
 import { spawnSpecial, specialFrame, updateProjectiles } from './specials';
 import type { FighterState, MatchConfig, MatchState, MoveDef } from './types';
 import { St } from './types';
@@ -47,7 +47,7 @@ export function hashMatch(m: MatchState): number {
   for (const f of m.f) {
     mix(f.x); mix(f.y); mix(f.vx); mix(f.vy); mix(f.hp); mix(f.meter); mix(f.st); mix(f.stFrame);
     mix(f.move); mix(f.moveFrame); mix(f.facing); mix(f.hitstun); mix(f.blockstun); mix(f.roundWins);
-    mix(f.cd0); mix(f.cd1); mix(f.cd2); mix(f.lastMove); mix(f.lastN); mix(f.repeatT);
+    mix(f.cd0); mix(f.cd1); mix(f.cd2); mix(f.cd3); mix(f.lastMove); mix(f.lastN); mix(f.repeatT);
   }
   for (const p of m.proj) { mix(p.x); mix(p.y); mix(p.owner); mix(p.life); }
   return h >>> 0;
@@ -168,6 +168,7 @@ function tickTimers(f: FighterState) {
   if (f.cd0 > 0) f.cd0--;
   if (f.cd1 > 0) f.cd1--;
   if (f.cd2 > 0) f.cd2--;
+  if (f.cd3 > 0) f.cd3--;
   if (f.dashCd > 0) f.dashCd--;
   if (f.repeatT > 0 && --f.repeatT === 0) { f.lastMove = -1; f.prevMove = -1; f.lastN = 0; f.prevN = 0; }
 }
@@ -201,10 +202,10 @@ export function staleRecovery(f: FighterState, mv: MoveDef): number {
   return Math.min(C.STALE_RECOVERY_MAX, staleness(f, mv) * C.STALE_RECOVERY);
 }
 
-/** Frames left before special `slot` (0..2) is ready. A fighter's own shots must also be gone before more fly. */
+/** Frames left before special `slot` (0..3) is ready. A fighter's own shots must also be gone before more fly. */
 export function specialWait(m: MatchState, p: number, slot: number): number {
   const f = m.f[p];
-  const cd = slot === 0 ? f.cd0 : slot === 1 ? f.cd1 : f.cd2;
+  const cd = slot === 0 ? f.cd0 : slot === 1 ? f.cd1 : slot === 2 ? f.cd2 : f.cd3;
   if (cd > 0) return cd;
   const sp = ROSTER[f.char].specials[slot];
   if (sp && sp.spec.kind === 'projectile') {
@@ -253,13 +254,16 @@ function pickMove(m: MatchState, f: FighterState, btn: number, inp: number, air:
   if (btn & C.IN_LP && motion(f, [2, 3, 6]) && ready(0)) return MV.SP0;
   if (btn & C.IN_HP && motion(f, [2, 1, 4]) && ready(1)) return MV.SP1;
   if (btn & C.IN_LK && motion(f, [6, 2, 3]) && ready(2)) return MV.SP2;
+  const four = ROSTER[f.char].specials.length > 3; // some fighters have a fourth special: back + special, or ←↙↓+HK
+  if (four && btn & C.IN_HK && motion(f, [4, 1, 2]) && ready(3)) return MV.SP3;
   const throwCombo = ((btn & C.IN_LP) && (inp & C.IN_LK || recentPress(f, C.IN_LK, 3))) ||
     ((btn & C.IN_LK) && (inp & C.IN_LP || recentPress(f, C.IN_LP, 3)));
   if (throwCombo) return MV.THROW;
   if (btn & C.IN_SP) {
     if (inp & C.IN_BLOCK && f.meter >= C.MAX_METER) return MV.HYPE;
-    const slot = down || recentPress(f, C.IN_DOWN, 8) ? 2 : fwd || recentPress(f, fwdBit(f), 8) ? 1 : 0;
-    if (ready(slot)) return MV.SP0 + slot;
+    const back = four && ((inp & backBit(f)) !== 0 || recentPress(f, backBit(f), 8));
+    const slot = down || recentPress(f, C.IN_DOWN, 8) ? 2 : fwd || recentPress(f, fwdBit(f), 8) ? 1 : back ? 3 : 0;
+    if (ready(slot)) return spMove(slot);
     if (f.history[f.history.length - 1] & ~f.prevInput & C.IN_SP) emit(m, { type: 'cooldown', p, a: slot });
     return -1;
   }
@@ -292,7 +296,7 @@ function startMove(m: MatchState, p: number, id: number) {
     if (heal) f.hp = Math.min(C.MAX_HP, f.hp + heal);
   } else if (mv.special) {
     const cd = mv.cooldown ?? 90;
-    if (id === MV.SP0) f.cd0 = cd; else if (id === MV.SP1) f.cd1 = cd; else f.cd2 = cd;
+    if (id === MV.SP0) f.cd0 = cd; else if (id === MV.SP1) f.cd1 = cd; else if (id === MV.SP2) f.cd2 = cd; else f.cd3 = cd;
     emit(m, { type: 'special', p, s: mv.special.spec.vfx, a: id });
   } else {
     noteRepeat(m, p, id, mv);

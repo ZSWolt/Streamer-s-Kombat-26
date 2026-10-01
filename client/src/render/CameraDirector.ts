@@ -2,6 +2,11 @@ import * as THREE from 'three';
 
 export type CamMode = 'fight' | 'focus' | 'orbit' | 'free';
 
+/** How much larger the fighters are on screen than in the first framing of the game. */
+const ZOOM = 1.3;
+/** Room (metres) kept between a fighter and the edge of the picture when they stand far apart. */
+const FIT_MARGIN = 1.1;
+
 export class CameraDirector {
   pos = new THREE.Vector3(0, 1.6, 9);
   look = new THREE.Vector3(0, 1.2, 0);
@@ -32,8 +37,12 @@ export class CameraDirector {
       const aspect = this.cam.aspect;
       const narrow = Math.max(1, 16 / 9 / aspect);
       const hyTop = Math.max(p1.y, p2.y);
-      const z = THREE.MathUtils.clamp((5.2 + sep * 0.62) * narrow + hyTop * 0.9, 6.4, 11.5 * narrow);
-      const halfView = Math.tan(THREE.MathUtils.degToRad(this.cam.fov / 2)) * z * aspect;
+      // Close enough that the fighters fill the screen (30% larger than the first framing: 5.2 + 0.62 sep, min 6.4),
+      // but never so close that either of them gets nearer than FIT_MARGIN to the edge of the picture.
+      const perZ = Math.tan(THREE.MathUtils.degToRad(this.cam.fov / 2)) * aspect; // half the picture's width per metre of distance
+      const zFit = (sep / 2 + FIT_MARGIN) / perZ;
+      const z = THREE.MathUtils.clamp(Math.max((4 + sep * 0.477) * narrow, zFit) + hyTop * 0.9, 6.4 / ZOOM, 11.5 * narrow);
+      const halfView = perZ * z;
       const lim = Math.max(0, stageHalf + 1.2 - halfView);
       const x = THREE.MathUtils.clamp(mid, -lim, lim);
       const hy = hyTop;

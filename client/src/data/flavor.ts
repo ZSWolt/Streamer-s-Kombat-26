@@ -9,7 +9,7 @@ export interface Banality {
 }
 
 export interface Flavor {
-  shouts: [string, string, string];
+  shouts: string[]; // one per special
   banalities: [Banality, Banality];
   intro: string[]; // first line when they open the pre-fight banter
   reply: string[]; // line when answering
@@ -26,7 +26,7 @@ export const FLAVOR: Record<string, Flavor> = {
     quote: 'מי רוצה לבוא ליום הולדת שלי?',
   },
   ronengg: {
-    shouts: ['אול אין!', 'Keep moving forward!', '24 ימים בלייב!'],
+    shouts: ['אול אין!', 'Keep moving forward!', '36 ימים בלייב!', 'קריפ!'],
     banalities: [B('BREAKING NEWS', 'BREAKING NEWS', 'breaking', 'דרמה', 'פרשן הדרמות הכי טוב בעולם.'), B("עגבניות מהצ'אט", 'CHAT TOMATOES', 'tomatoes', 'בוז', "ברו נפל לרייג' בייט.")],
     intro: ["It's not about how hard you hit.", '80 אלף עוקבים לא טועים.'], reply: ["ברו נפל לרייג' בייט.", 'סיקור דרמות אחרי זה.'],
     quote: 'הגענו ל-80 אלף עוקבים!',
@@ -38,7 +38,7 @@ export const FLAVOR: Record<string, Flavor> = {
     quote: 'מי שאוכל יותר בננות — מנצח!',
   },
   igz: {
-    shouts: ['סנסיי!', 'הצב!', 'בלי דרמות.'],
+    shouts: ['סנסיי!', 'הצב!', 'בלי דרמות.', 'גלפגוס!'],
     banalities: [B('לייב 24 שעות', '24H STREAM', 'sleep24', 'נרדם', 'יום 1 בלי דרמות.'), B('הצב', 'THE TURTLE', 'turtle', 'צב', 'סנסיי אמר.')],
     intro: ['יום 1 בלי דרמות.', 'היום עושים כיף.'], reply: ['היום נחצו גבולות.', 'סנסיי.'],
     quote: 'היום עושים כיף.',
@@ -56,7 +56,7 @@ export const FLAVOR: Record<string, Flavor> = {
     quote: 'לא סוגר את הלייב עד שאני מסיים את המשחק.',
   },
   maorameleh: {
-    shouts: ['גיטרה אימוט!', 'פיצול אישיות!', 'בום!'],
+    shouts: ['גיטרה אימוט!', 'פיצול אישיות!', 'בום!', 'לחיים!'],
     banalities: [B('המכונה', 'THE MACHINE', 'vending', 'אזל מהמלאי', 'המכונה לא נעצרת.'), B('פיצול אישיות', 'SPLIT PERSONALITY', 'clones', 'x3', 'מאור הנחמד לא בבית היום.')],
     intro: ['מאור הנחמד, פרק 8.', 'עושים פה כיף.'], reply: ['אתמול לא הייתי נחמד. סליחה.', 'המכונה עובדת.'],
     quote: 'מאור הנחמד — פרק 8.',
@@ -68,13 +68,13 @@ export const FLAVOR: Record<string, Flavor> = {
     quote: 'מי הגיימר היותר טוב? אין מצב שאני מפסיד.',
   },
   pedrofederer: {
-    shouts: ['קלף זהב!', 'איזה צליפה!', 'EARTHQUACKERR!'],
+    shouts: ['קלף זהב!', 'איזה צליפה!', 'EARTHQUACKERR!', 'פצצת ריח!'],
     banalities: [B('GRADED 10', 'GRADED 10', 'graded', 'PSA 10', 'ניקי מוציא זהב!'), B('רעידת אדמה', 'EARTHQUACKERR', 'quakepit', 'נבלע', 'יאווווו.')],
     intro: ['יאווווו, בוסטר חדש.'], reply: ['קיבלתי קלף הכי נדיר בעולם.', 'איזה צליפה.'],
     quote: 'קיבלתי קלף הכי נדיר בעולם.',
   },
   devidtur: {
-    shouts: ['NPC MODE', 'קיקר!', 'מחשב חדש!'],
+    shouts: ['NPC MODE', 'קיקר!', 'מחשב חדש!', 'באצה!'],
     banalities: [B('Unboxing', 'UNBOXING', 'unboxing', 'FRAGILE', 'קוקו מאן.'), B('דיספאון', 'DESPAWN', 'despawn', 'ERROR 404', 'הקיקרים לא מפסידים.')],
     intro: ['לייב של הקיקרים!'], reply: ['אני לא נושם.', 'קוקו מאן.'],
     quote: 'יש מחשב חדש — עכשיו אנחנו קיקר פרו מקס.',

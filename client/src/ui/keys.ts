@@ -17,14 +17,14 @@ export function KA(a: Action): string {
 }
 
 /** Simplified special input, e.g. "→+L" */
-export function spInput(input: 'U' | 'FU' | 'DU'): string {
+export function spInput(input: 'U' | 'FU' | 'DU' | 'BU'): string {
   const s = K('sp');
-  return input === 'U' ? s : input === 'FU' ? `→+${s}` : `↓+${s}`;
+  return input === 'U' ? s : input === 'FU' ? `→+${s}` : input === 'DU' ? `↓+${s}` : `←+${s}`;
 }
 
 /** Classic arcade motion for the same special (quarter circles / dragon punch) */
-export function motionInput(input: 'U' | 'FU' | 'DU'): string {
-  return input === 'U' ? `↓↘→+${K('lp')}` : input === 'FU' ? `↓↙←+${K('hp')}` : `→↓↘+${K('lk')}`;
+export function motionInput(input: 'U' | 'FU' | 'DU' | 'BU'): string {
+  return input === 'U' ? `↓↘→+${K('lp')}` : input === 'FU' ? `↓↙←+${K('hp')}` : input === 'DU' ? `→↓↘+${K('lk')}` : `←↙↓+${K('hk')}`;
 }
 
 export function hypeInput(): string { return `${K('sp')}+${K('block')}`; }

@@ -47,7 +47,7 @@ export interface Fighter {
   stage: number;
   stats: [number, number, number, number]; // speed, power, defense, reach (1..5)
   look: Look;
-  specials: [SpecialDef, SpecialDef, SpecialDef];
+  specials: SpecialDef[]; // three, or four (the fourth is back + special)
   hype: { name: string; en: string; vfx: string; spec?: Partial<SpecialSpec> };
   intro: string;
   win: string;
@@ -94,6 +94,7 @@ export const ROSTER: Fighter[] = [
       sp('U', "ז'יטונים", 'GAMBLE ATTACK', 'throw', shot({ vfx: 'chips', damage: 21, randomDamage: [6, 36], count: 4, spread: 16, speed: 90, size: [240, 240] })),
       sp('FU', 'Keep Moving Forward', 'KEEP MOVING FORWARD', 'straight', rush({ vfx: 'armor', damage: 100, speed: 92, armor: 1, knockdown: true })),
       sp('DU', 'סאבטון', 'SUBATHON ATTACK', 'point', { kind: 'drop', startup: 20, recovery: 24, damage: 105, knockdown: true, size: [760, 560], vfx: 'subathon', hitstun: 30 }),
+      sp('BU', 'Creep', 'CREEP ATTACK', 'throw', shot({ vfx: 'creep', damage: 85, speed: 64, startup: 17, knockdown: true, size: [600, 460] })),
     ],
     hype: { name: '80K', en: '80K RUSH', vfx: 'rocky' },
     intro: "It's about how hard you can get hit.", win: 'פרשן הדרמות הכי טוב בעולם.',
@@ -120,6 +121,7 @@ export const ROSTER: Fighter[] = [
       sp('U', 'סנסיי', 'SENSEI CHOPS', 'chops', rush({ vfx: 'chops', damage: 24, hits: 4, speed: 26, active: 20, hitstun: 14 })),
       sp('FU', 'הצב', 'TURTLE SPIN', 'turtle', rush({ vfx: 'turtle', damage: 85, speed: 104, active: 18, invuln: [4, 20] })),
       sp('DU', 'יום 1 בלי דרמות', 'NO DRAMA PARRY', 'meditate', { kind: 'counter', startup: 2, active: 26, recovery: 16, damage: 80, hitstun: 26, vfx: 'meditate' }),
+      sp('BU', 'גלפגוס', 'GALAPAGOS ATTACK', 'throw', shot({ vfx: 'lettuce', damage: 32, count: 3, spread: 22, speed: 78, size: [330, 330] })),
     ],
     hype: { name: 'גלגל המזל', en: 'WHEEL OF FORTUNE', vfx: 'wheel' },
     intro: 'יום 1 בלי דרמות.', win: 'סנסיי.',
@@ -159,6 +161,7 @@ export const ROSTER: Fighter[] = [
       sp('U', 'גיטרה אימוט', 'GUITAR EMOTE', 'guitar', rush({ vfx: 'guitar', damage: 100, speed: 38, active: 10, knockdown: true, startup: 13 })),
       sp('FU', 'פיצול אישיות', 'SPLIT PERSONALITY', 'clones', rush({ vfx: 'clones', damage: 40, hits: 3, speed: 86, active: 18 })),
       sp('DU', 'פצצת המכונה', 'MACHINE BOMB', 'lob', shot({ vfx: 'bomb', damage: 85, speed: 48, vy: 95, gravity: 6, knockdown: true, size: [380, 380] })),
+      sp('BU', 'יין אדום', 'WINE THROW', 'lob', shot({ vfx: 'wine', damage: 46, count: 2, spread: 64, speed: 62, vy: 84, gravity: 6, hitstun: 24, size: [280, 400] })),
     ],
     hype: { name: 'מאור הנחמד', en: 'MAOR THE NICE', vfx: 'nice', spec: { heal: 120 } },
     intro: 'מאור הנחמד, פרק 8.', win: 'המכונה לא נעצרת.',
@@ -185,6 +188,7 @@ export const ROSTER: Fighter[] = [
       sp('U', 'קלף זהב', 'GOLD CARDS', 'throw', shot({ vfx: 'cards', damage: 30, count: 3, spread: 18, speed: 86, size: [260, 260] })),
       sp('FU', 'איזה צליפה!', 'WHAT A SNIPE', 'snipe', shot({ vfx: 'snipe', damage: 70, speed: 165, startup: 18, size: [300, 200] })),
       sp('DU', 'EARTHQUACKERR', 'EARTHQUACKERR', 'stomp', { kind: 'trap', startup: 18, recovery: 26, damage: 80, level: 'low', knockdown: true, range: 0, size: [1900, 400], life: 14, vfx: 'quake' }),
+      sp('BU', 'פצצת ריח', 'SMELL BOMB', 'lob', shot({ vfx: 'perfume', damage: 48, speed: 64, vy: 84, gravity: 6, stun: 48, size: [340, 380] })),
     ],
     hype: { name: 'הקלף הכי נדיר בעולם', en: 'RAREST CARD', vfx: 'legendary' },
     intro: 'יאווווו.', win: 'ניקי מוציא זהב!',
@@ -198,6 +202,7 @@ export const ROSTER: Fighter[] = [
       sp('U', 'NPC Mode', 'NPC MODE', 'glitch', rush({ vfx: 'glitch', damage: 30, hits: 3, speed: 60, active: 16 })),
       sp('FU', 'קיקר', 'KICKER', 'kickball', shot({ vfx: 'football', damage: 75, speed: 115, size: [320, 320] })),
       sp('DU', 'מחשב חדש', 'NEW PC', 'point', { kind: 'drop', startup: 20, recovery: 24, damage: 100, knockdown: true, size: [520, 700], vfx: 'pctower', hitstun: 30 }),
+      sp('BU', 'באצה', 'BATZA ATTACK', 'throw', shot({ vfx: 'batza', damage: 24, count: 4, spread: 18, speed: 88, size: [250, 250] })),
     ],
     hype: { name: 'Speedrun', en: 'SPEEDRUN', vfx: 'speedrun' },
     intro: 'לייב של הקיקרים.', win: 'קוקו מאן.',

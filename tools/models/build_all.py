@@ -37,6 +37,9 @@ def blender():
     raise SystemExit('Blender not found (set BLENDER=path/to/blender.exe)')
 
 
+ALIASES = {'oahd': 'masterohad'}  # file names as they arrived (a typo of OHAD)
+
+
 def roster_ids():
     import re
     with open(os.path.join(ROOT, 'client', 'src', 'data', 'roster.ts'), encoding='utf8') as f:
@@ -60,11 +63,15 @@ def fighter_id(stem: str):
         if w:
             words.append(w)
     ids = roster_ids()
+    words = [ALIASES.get(w, w) for w in words]
     for w in words:
         if w in ids:
             return w, version
     for i in ids:  # e.g. 'sasi' for sasivetheboiz, 'ohad' for masterohad
         if any(len(w) >= 4 and w in i for w in words):
+            return i, version
+    for i in ids:  # e.g. 'sho' for shotist
+        if any(len(w) >= 3 and i.startswith(w) for w in words):
             return i, version
     return words[0], version
 
@@ -118,7 +125,9 @@ def main():
         print(f'== {name} -> {fid}', flush=True)
         stale = not os.path.exists(blend) or os.path.getmtime(blend) < os.path.getmtime(src)
         if a.prep or stale:
-            if not run('prep.py', [src, CACHE, fid, '--tris', a.tris, '--overrides', ovr]) or not os.path.exists(blend):
+            had = os.path.getmtime(blend) if os.path.exists(blend) else 0
+            ok = run('prep.py', [src, CACHE, fid, '--tris', a.tris, '--overrides', ovr])
+            if not ok or not os.path.exists(blend) or os.path.getmtime(blend) == had:  # an old cache is not this model
                 print('   FAILED (prep)', flush=True)
                 continue
         out = os.path.join(OUT, fid + '.glb')
