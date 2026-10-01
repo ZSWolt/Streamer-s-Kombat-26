@@ -111,17 +111,26 @@ git(['commit', '-q', '-F', mf]);
 fs.rmSync(mf);
 console.log('✓ committed', gitOut(['log', '--oneline', '-1']));
 if (flag('--no-push')) process.exit(0);
+// someone else may have pushed meanwhile (GitHub itself commits a CNAME when the Pages domain is changed)
+git(['fetch', '-q', 'origin', 'main'], { allowFail: true });
+if (Number(gitOut(['rev-list', '--count', 'HEAD..origin/main'])) > 0) {
+  console.log('▸ merging new commits from origin/main');
+  git(['merge', '--no-edit', '-q', 'origin/main']);
+}
 console.log('▸ push');
 git(['push', 'origin', 'main'], { env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' } });
 
 // ---------------------------------------------------------------- wait for the live site
+// the page itself is compared, so a change that leaves the bundle untouched (index.html only) is waited for too;
+// if GitHub's build of the page differs in some trivial way, the bundle name is accepted after a minute
 const bundle = html.match(/assets\/index-[\w-]+\.js/)?.[0];
+const squash = (t) => t.replace(/\s+/g, ' ').trim();
 console.log('▸ waiting for', SITE, 'to serve', bundle);
 for (let i = 0; i < 40; i++) {
   await new Promise((r) => setTimeout(r, 6000));
   try {
     const live = await (await fetch(SITE + '?t=' + Date.now(), { cache: 'no-store', redirect: 'follow' })).text();
-    if (bundle && live.includes(bundle)) { console.log(`✓ live after ~${(i + 1) * 6}s: ${SITE}`); process.exit(0); }
+    if (squash(live) === squash(html) || (i >= 10 && bundle && live.includes(bundle))) { console.log(`✓ live after ~${(i + 1) * 6}s: ${SITE}`); process.exit(0); }
   } catch { /* keep polling */ }
 }
 console.log('! pushed, but the site had not switched to the new build after 4 minutes — check the repo\'s Actions tab');
