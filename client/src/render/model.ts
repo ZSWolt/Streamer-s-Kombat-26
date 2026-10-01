@@ -2,28 +2,33 @@ import * as THREE from 'three';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { GUARD, J, JOINTS } from './pose';
+import { J, JOINTS } from './pose';
 
-// Real character models (tools/models/build.py output). Each GLB carries a 17-bone skeleton named after the
-// procedural rig's joints plus a `skrig` blob describing its bind pose (a fighting stance). The procedural rig
-// keeps running invisibly; every frame its joint rotations are retargeted onto the model's bones, so all the
-// existing poses and attack animations drive the real models.
+// Real character models (tools/models/prep.py + rig.py output). Each GLB carries a 17-bone skeleton named after
+// the procedural rig's joints, standing in a neutral A-pose, plus a `skrig` blob with that pose's joints.
 //
-// The model was sculpted in its own fighting stance, and that is what it should look like when it is not doing
-// anything else. Each joint therefore has two candidate orientations every frame:
-//   stance   — its sculpted pose, plus whatever small change the animation made to that joint since GUARD;
-//   absolute — exactly where the animation's skeleton puts it.
-// A joint the animation barely touches stays in the stance (so in GUARD the mesh is not deformed at all); a joint
-// it really drives (the punching arm, the kicking leg, a body folding from a hit) goes to the absolute pose.
-// Shoulders, hips and the trunk blend in world space, so a punch flies level even though the torso is still
-// leaning in its stance; elbows, knees, wrists and ankles blend relative to their parent so they stay hinges.
+// The procedural rig keeps running invisibly and plays every pose and attack animation. Its proportions are a
+// bobblehead's (short limbs, huge head), so its joint angles are not copied onto the model: a real body doing
+// those angles would float, sink or cross its own legs. Instead the model re-enacts what the rig *does*:
+//   trunk  — the pelvis and the head take the rig's orientations; the back bends and twists the same way but
+//            less (a toy folds at the waist far more than a spine does), and the arms go with the back;
+//   hands  — each wrist goes where the rig's wrist is, measured from the shoulder in arm lengths, and the elbow
+//            is solved for it (two-bone IK, bending the way the rig's elbow points);
+//   feet   — a foot the rig has on the floor is planted flat on the floor at the same place (in leg lengths); a
+//            raised foot keeps its position relative to the hip; knees are solved, and only ever bend forward;
+//   pelvis — rides at the rig's height (in leg lengths) and sinks just enough for the planted feet to reach;
+//   aim    — a limb the rig throws out (a punch, a kick) goes down the fight line at the opponent, whatever
+//            the toy rig's twisted torso made of it.
+// So a stance is a stance and a kick is a kick on any body, with the feet on the ground and no joint asked to do
+// something a human joint cannot.
 
 interface SkRig {
+  rest?: string;
+  armA?: number;
   height: number;
   joints: Record<string, number[]>;
   tips: Record<string, number[]>;
   headTop: number[];
-  headYaw: number;
   sole: number;
 }
 export interface ModelAsset { id: string; scene: THREE.Object3D; rig: SkRig }
@@ -61,8 +66,8 @@ export async function preloadModels(onProgress?: (p: number) => void) {
           if (mat.map) mat.map.anisotropy = 4;
         }
       });
-      if (rig) assets.set(id, { id, scene: g.scene, rig });
-      else console.warn('[models] no skrig in', m.file);
+      if (rig && (rig as SkRig).rest === 'neutral') assets.set(id, { id, scene: g.scene, rig });
+      else console.warn('[models] not a neutral-pose model (rebuild it with tools/models/build_all.py):', m.file);
     } catch (e) {
       console.warn('[models] failed to load', id, e);
     }
@@ -79,35 +84,58 @@ const PARENT: number[] = JOINTS.map((n) => {
   };
   return n in p ? J[p[n] as keyof typeof J] : -1;
 });
-const RIG_LEG = 0.62; // procedural rig: thigh 0.32 + shin 0.30
-// How far (radians) a joint must turn away from GUARD before the animation's own orientation fully takes over.
-// Arms: short — a block or a punch must land where it is aimed. Legs: long — walking is a shuffle inside the stance.
-const TAKEOVER: number[] = JOINTS.map((n) => (/^(arm|fore|hand)/.test(n) ? 0.5 : /^(thigh|shin|foot)/.test(n) ? 1.2 : 1.0));
-/** joints whose absolute target is a world orientation (ball joints / body); the rest are hinges under their parent */
-const WORLD: boolean[] = JOINTS.map((n) => /^(hips|spine|chest|head|arm|thigh)/.test(n));
-const GUARD_INV: THREE.Quaternion[] = JOINTS.map((_, j) => new THREE.Quaternion().setFromEuler(new THREE.Euler(GUARD[j * 3], GUARD[j * 3 + 1], GUARD[j * 3 + 2], 'XYZ')).invert());
 const RIG_HEIGHT = 1.75;
+const ARMS = [[J.armL, J.foreL, J.handL], [J.armR, J.foreR, J.handR]] as const;
+const LEGS = [[J.thighL, J.shinL, J.footL], [J.thighR, J.shinR, J.footR]] as const;
+/** how much of the bobblehead's head wobble a real head shows */
+const HEAD_BOB = 0.3;
+/** how much of the toy's bending and twisting at the waist and chest a real back does */
+const TRUNK = 0.62;
 
 const V = (a: number[]) => new THREE.Vector3(a[0], a[1], a[2]);
-const dir = (a: THREE.Vector3, b: THREE.Vector3) => b.clone().sub(a).normalize();
-/** Rotation whose local axes are x (left), y (up) and x × y, after orthogonalising y against x. */
-function frameXY(x: THREE.Vector3, yApprox: THREE.Vector3): THREE.Quaternion {
-  const xx = x.clone().normalize();
-  const z = xx.clone().cross(yApprox).normalize();
-  const y = z.clone().cross(xx).normalize();
-  return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xx, y, z));
-}
-/** Same, but keeps y exact and orthogonalises x (limbs: y runs along the bone, x is the hinge). */
-function frameYX(y: THREE.Vector3, xApprox: THREE.Vector3): THREE.Quaternion {
-  const yy = y.clone().normalize();
-  const z = xApprox.clone().cross(yy).normalize();
-  const x = yy.clone().cross(z).normalize();
-  return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, yy, z));
-}
+const UP = new THREE.Vector3(0, 1, 0);
+const IDENTITY = new THREE.Quaternion();
+const smooth = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 const tq = new THREE.Quaternion();
-const tq2 = new THREE.Quaternion();
 const tv = new THREE.Vector3();
+const tv2 = new THREE.Vector3();
+const vx = new THREE.Vector3();
+const vy = new THREE.Vector3();
+const vz = new THREE.Vector3();
+const tm = new THREE.Matrix4();
+const axis = new THREE.Vector3();
+const bend = new THREE.Vector3();
+const mid = new THREE.Vector3();
+const hinge = new THREE.Vector3();
+const la = new THREE.Vector3();
+const lb = new THREE.Vector3();
+const hipAt = new THREE.Vector3();
+const onFloor = new THREE.Vector3();
+const FEET = [new THREE.Vector3(), new THREE.Vector3()];
+const ELBOW_REST = new THREE.Vector3(0, -1, -0.4);
+const aimQ = new THREE.Quaternion();
+const backQ = new THREE.Quaternion();
+
+/**
+ * How far to swing a thrown limb round onto the fight line (+z): the angle (about the vertical) that takes `v`,
+ * the limb from its root to its end in rig units, to straight ahead — scaled by how much the limb is thrown at
+ * all: stretched out (`reach` 0..1 of its length), level rather than hanging or raised, and already forward-ish.
+ */
+function aimTurn(v: THREE.Vector3, reach: number, back: number): number {
+  const flat = Math.hypot(v.x, v.z), len = v.length();
+  if (len < 1e-5 || flat < 1e-5) return 0;
+  const w = smooth(0.7, 0.93, reach) * smooth(0.35, 0.7, flat / len) * smooth(back, back + 0.5, v.z / flat);
+  return -Math.atan2(v.x, v.z) * w;
+}
+
+/** Rotation whose y axis is exactly `y` (up the bone) and whose x axis is `xApprox` made square to it (the hinge). */
+function frameYX(y: THREE.Vector3, xApprox: THREE.Vector3, out: THREE.Quaternion) {
+  vy.copy(y).normalize();
+  vz.copy(xApprox).cross(vy).normalize();
+  vx.copy(vy).cross(vz).normalize();
+  return out.setFromRotationMatrix(tm.makeBasis(vx, vy, vz));
+}
 
 export class ModelSkin {
   /** Lives under the rig's `body` group; scaled so the model stands as tall as the procedural fighter. */
@@ -116,19 +144,18 @@ export class ModelSkin {
   /** Tracks the centre of the head (portrait framing, effects). */
   faceAnchor = new THREE.Object3D();
   headSize: number;
-  /** When true the lower foot is kept on the floor; otherwise the pelvis is only kept above it (lying, airborne). */
+  /** When true the feet carry the body (planted, pelvis kept within reach); otherwise it is airborne or lying. */
   feetOnGround = true;
-  /** 0 = the current pose is guard-based (keep the stance where the pose is silent), 1 = it is meant literally */
-  absolute = 0;
   private bones: THREE.Object3D[] = [];
   private bindPos: THREE.Vector3[] = [];
   private bindRot: THREE.Quaternion[] = [];
-  private starInv: THREE.Quaternion[] = [];
-  /** each joint's sculpted orientation relative to its parent */
-  private stance: THREE.Quaternion[] = [];
+  /** inverse of each joint frame's orientation in the model's rest pose */
+  private restInv: THREE.Quaternion[] = [];
+  /** the procedural rig's skeleton this frame: world orientation and position of every joint (rig units) */
+  private cq: THREE.Quaternion[] = JOINTS.map(() => new THREE.Quaternion());
+  private cp: THREE.Vector3[] = JOINTS.map(() => new THREE.Vector3());
+  /** the model's skeleton this frame: joint frames, bone rotations from rest, joint positions (model units) */
   private f: THREE.Quaternion[] = JOINTS.map(() => new THREE.Quaternion());
-  private keep = new Float32Array(JOINTS.length);
-  private q: THREE.Quaternion[] = JOINTS.map(() => new THREE.Quaternion());
   private d: THREE.Quaternion[] = JOINTS.map(() => new THREE.Quaternion());
   private p: THREE.Vector3[] = JOINTS.map(() => new THREE.Vector3());
   private legLen: number;
@@ -136,8 +163,17 @@ export class ModelSkin {
   private bodyMin: number;
   private faceOff: THREE.Vector3;
   private lift = 0;
+  private rigLeg: number;
+  private rigArm: number[];
+  private rigAnkle: number;
+  /** sideways scale from the rig to the model: hip width to hip width */
+  private kx: number;
+  private plant = [0, 0];
+  private legAim = [0, 0];
+  /** how far the hip joints sit below the pelvis joint (the rig has them level) */
+  private hipDrop: number;
 
-  constructor(asset: ModelAsset, private joints: THREE.Object3D[], private headBob: THREE.Object3D, private hipsBaseY: number, tint?: string) {
+  constructor(asset: ModelAsset, private joints: THREE.Object3D[], private headBob: THREE.Object3D, hipsBaseY: number, tint?: string) {
     const sk = asset.rig;
     const inst = cloneSkinned(asset.scene);
     const boneRoot = new THREE.Group();
@@ -175,98 +211,140 @@ export class ModelSkin {
       this.bindRot.push(rot);
       boneRoot.add(bone); // flatten: each bone is positioned directly in model space
       this.bones.push(bone);
+      // rest pose: everything square to the world, arms lowered `armA` from horizontal-down (an A-pose)
+      const arm = /^(arm|fore|hand)/.test(JOINTS[j]);
+      const a = arm ? (JOINTS[j].endsWith('L') ? 1 : -1) * (sk.armA ?? 0) : 0;
+      this.restInv.push(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), a).invert());
     }
-
-    // ---- orientation of every rig joint frame in the model's bind pose (see frame conventions in pose.ts)
-    const star: THREE.Quaternion[] = [];
-    const up = new THREE.Vector3(0, 1, 0);
-    const hipsX = dir(P[J.thighR], P[J.thighL]);
-    const chestX = dir(P[J.armR], P[J.armL]);
-    star[J.hips] = frameXY(hipsX, dir(P[J.hips], P[J.spine]));
-    star[J.spine] = frameYX(dir(P[J.spine], P[J.chest]), hipsX.clone().add(chestX));
-    star[J.chest] = frameXY(chestX, dir(P[J.chest], P[J.neck]));
-    star[J.neck] = frameYX(dir(P[J.neck], P[J.head]), chestX);
-    star[J.head] = new THREE.Quaternion().setFromAxisAngle(up, sk.headYaw || 0);
-    const limb = (a: number, b: number, c: number, elbow: boolean, fallbackX: THREE.Vector3) => {
-      const u1 = dir(P[a], P[b]), u2 = dir(P[b], P[c]);
-      let hinge = u1.clone().cross(u2);
-      if (hinge.length() < 0.12) hinge = fallbackX.clone(); else hinge.normalize().multiplyScalar(elbow ? -1 : 1);
-      star[a] = frameYX(u1.clone().negate(), hinge);
-      star[b] = frameYX(u2.clone().negate(), hinge);
-      return hinge;
-    };
-    const hL = limb(J.armL, J.foreL, J.handL, true, chestX);
-    const hR = limb(J.armR, J.foreR, J.handR, true, chestX);
-    star[J.handL] = frameYX(dir(P[J.handL], V(sk.tips.tipL)).negate(), hL);
-    star[J.handR] = frameYX(dir(P[J.handR], V(sk.tips.tipR)).negate(), hR);
-    limb(J.thighL, J.shinL, J.footL, false, hipsX);
-    limb(J.thighR, J.shinR, J.footR, false, hipsX);
-    for (const [foot, toe] of [[J.footL, sk.tips.toeL], [J.footR, sk.tips.toeR]] as const) {
-      const fwd = V(toe).sub(P[foot]); fwd.y = 0; fwd.normalize();
-      const x = up.clone().cross(fwd).normalize();
-      star[foot] = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, up, fwd));
-    }
-    this.starInv = star.map((s) => s.clone().invert());
-    this.stance = star.map((s, j) => (PARENT[j] < 0 ? s.clone() : this.starInv[PARENT[j]].clone().multiply(s)));
 
     // ---- proportions
     const len = (a: number, b: number) => P[a].distanceTo(P[b]);
     this.legLen = (len(J.thighL, J.shinL) + len(J.shinL, J.footL) + len(J.thighR, J.shinR) + len(J.shinR, J.footR)) / 2;
     this.ankle = (P[J.footL].y + P[J.footR].y) / 2 - sk.sole;
-    this.bodyMin = sk.height * 0.11;
+    this.bodyMin = sk.height * 0.09;
     const headTop = V(sk.headTop);
-    const standing = this.legLen + this.ankle + len(J.hips, J.spine) + len(J.spine, J.chest) + len(J.chest, J.neck) + len(J.neck, J.head) + (headTop.y - P[J.head].y);
-    const scale = (RIG_HEIGHT * 0.97) / standing;
+    const scale = (RIG_HEIGHT * 0.97) / (sk.height - sk.sole);
     this.root.scale.setScalar(scale);
     this.headSize = ((headTop.y - P[J.head].y) * 0.5) * scale;
-    this.faceOff = new THREE.Vector3(0, (headTop.y - P[J.head].y) * 0.55, sk.height * 0.08);
+    this.faceOff = new THREE.Vector3(0, (headTop.y - P[J.head].y) * 0.55, sk.height * 0.07);
+    // the procedural rig's own limb lengths
+    const jl = (j: number) => joints[j].position.length();
+    this.rigLeg = jl(J.shinL) + jl(J.footL);
+    this.rigArm = [jl(J.foreL) + jl(J.handL), jl(J.foreR) + jl(J.handR)];
+    this.rigAnkle = hipsBaseY - this.rigLeg;
+    this.kx = Math.abs(P[J.thighL].x - P[J.thighR].x) / Math.max(1e-4, Math.abs(joints[J.thighL].position.x - joints[J.thighR].position.x));
+    this.hipDrop = P[J.hips].y - (P[J.thighL].y + P[J.thighR].y) / 2;
     this.update(0);
   }
 
-  /** Retarget the rig's current joint rotations onto the model. Call after the rig pose (and head bob) is set. */
+  /**
+   * Two-bone limb from `root` to `target`, bending towards `pole`. Writes the two joint frames and returns
+   * nothing; `a`, `b` are the bone lengths. Knees hinge the other way round from elbows.
+   */
+  private limb(root: THREE.Vector3, target: THREE.Vector3, pole: THREE.Vector3, fallback: THREE.Vector3, a: number, b: number, knee: boolean, upper: number, lower: number) {
+    axis.copy(target).sub(root);
+    const dist = Math.min((a + b) * 0.9995, Math.max(Math.abs(a - b) + 1e-4, axis.length()));
+    axis.normalize();
+    bend.copy(pole).addScaledVector(axis, -pole.dot(axis));
+    if (bend.lengthSq() < 1e-6) bend.copy(fallback).addScaledVector(axis, -fallback.dot(axis));
+    if (bend.lengthSq() < 1e-6) bend.set(axis.y, -axis.x, 0);
+    bend.normalize();
+    const cosA = Math.min(1, Math.max(-1, (a * a + dist * dist - b * b) / (2 * a * dist)));
+    mid.copy(root).addScaledVector(axis, a * cosA).addScaledVector(bend, a * Math.sqrt(1 - cosA * cosA));
+    hinge.copy(axis).cross(bend);
+    if (knee) hinge.negate();
+    frameYX(la.copy(root).sub(mid), hinge, this.f[upper]);
+    frameYX(la.copy(mid).sub(lb.copy(root).addScaledVector(axis, dist)), hinge, this.f[lower]);
+  }
+
+  /** Re-enact the rig's current pose on the model. Call after the rig pose (and head bob) is set. */
   update(dt = 1 / 60) {
-    const { q, f, d, p, joints } = this;
-    const rel = 1 - Math.min(1, Math.max(0, this.absolute));
+    const { cq, cp, f, d, p, joints, bindPos } = this;
+    // ---- what the rig is doing
     for (let j = 0; j < joints.length; j++) {
       const par = PARENT[j];
-      const local = joints[j].quaternion;
-      // the animation skeleton's own world orientation of this joint
-      if (par < 0) q[j].copy(local); else q[j].multiplyQuaternions(q[par], local);
-      // how far the animation turned this joint away from GUARD -> how much of the stance survives
-      tq.multiplyQuaternions(GUARD_INV[j], local);
-      const turn = 2 * Math.acos(Math.min(1, Math.abs(tq.w)));
-      const t = Math.min(1, turn / TAKEOVER[j]);
-      let keep = rel * (1 - t * t * (3 - 2 * t));
-      // a hinge can only stay in the stance while the limb it hangs from does (a kicking leg straightens its knee)
-      if (!WORLD[j]) keep = Math.min(keep, this.keep[par]);
-      this.keep[j] = keep;
-      // stance orientation relative to the parent, carrying the animation's local change
-      tq2.multiplyQuaternions(this.stance[j], tq);
-      if (WORLD[j]) {
-        if (par >= 0) tq2.premultiply(f[par]);
-        f[j].copy(q[j]).slerp(tq2, keep);
-      } else {
-        tq.copy(local).slerp(tq2, keep);
-        f[j].multiplyQuaternions(f[par], tq);
+      if (par < 0) { cq[j].copy(joints[j].quaternion); cp[j].copy(joints[j].position); }
+      else { cq[j].multiplyQuaternions(cq[par], joints[j].quaternion); cp[j].copy(joints[j].position).applyQuaternion(cq[par]).add(cp[par]); }
+    }
+    const k = this.legLen / this.rigLeg;
+    const grounded = this.feetOnGround;
+    // the rig is not exact about the floor; when the feet carry it, its lower foot is on the floor by definition
+    const floor = grounded ? Math.min(cp[J.footL].y, cp[J.footR].y) - this.rigAnkle : 0;
+
+    // ---- trunk
+    f[J.hips].copy(cq[J.hips]);
+    for (const j of [J.spine, J.chest]) f[j].copy(f[PARENT[j]]).multiply(tq.copy(IDENTITY).slerp(joints[j].quaternion, TRUNK));
+    f[J.neck].copy(f[J.chest]).multiply(joints[J.neck].quaternion);
+    f[J.head].copy(cq[J.head]).multiply(tq.copy(IDENTITY).slerp(this.headBob.quaternion, HEAD_BOB));
+    // what the rig's arms do, they do from its chest: carry that over to the straighter back
+    backQ.copy(cq[J.chest]).invert().premultiply(f[J.chest]);
+    p[J.hips].set(cp[J.hips].x * k, this.ankle + (cp[J.hips].y - this.rigAnkle - floor) * k + this.hipDrop, cp[J.hips].z * k);
+
+    // ---- feet: where they have to be
+    const feet = FEET;
+    const plant = this.plant;
+    let drop = 0;
+    for (let s = 0; s < 2; s++) {
+      const [th, sh, ft] = LEGS[s];
+      const h = cp[ft].y - floor - this.rigAnkle; // height of the rig's foot above its floor
+      plant[s] = grounded ? 1 - smooth(0.02, 0.09, h) : 0;
+      // hip joint of the model, before any drop
+      hipAt.copy(bindPos[th]).sub(bindPos[J.hips]).applyQuaternion(f[J.hips]).add(p[J.hips]);
+      // raised: same place relative to the hip, in leg lengths; planted: same place on the floor (sideways in
+      // hip widths, so a wide-hipped body does not stand knock-kneed)
+      tv.copy(cp[ft]).sub(cp[th]);
+      this.legAim[s] = (1 - plant[s]) * aimTurn(tv, tv.length() / this.rigLeg, -0.35);
+      feet[s].copy(tv.applyAxisAngle(UP, this.legAim[s])).multiplyScalar(k).add(hipAt);
+      onFloor.set(cp[ft].x * this.kx, this.ankle, cp[ft].z * k);
+      feet[s].lerp(onFloor, plant[s]);
+      if (plant[s] > 0) {
+        const L = (bindPos[th].distanceTo(bindPos[sh]) + bindPos[sh].distanceTo(bindPos[ft])) * 0.995;
+        const hd = Math.hypot(feet[s].x - hipAt.x, feet[s].z - hipAt.z);
+        const top = feet[s].y + Math.sqrt(Math.max(0, L * L - hd * hd));
+        drop = Math.max(drop, (hipAt.y - top) * plant[s]);
       }
     }
-    for (let j = 0; j < joints.length; j++) {
-      // the bobblehead spring only affects the head itself
-      if (j === J.head) d[j].multiplyQuaternions(tq.multiplyQuaternions(f[j], this.headBob.quaternion), this.starInv[j]);
-      else d[j].multiplyQuaternions(f[j], this.starInv[j]);
+    p[J.hips].y -= drop;
+    for (let s = 0; s < 2; s++) feet[s].y -= drop * (1 - plant[s]); // a raised foot goes down with its hip
+
+    // ---- bone rotations and joint positions down the trunk (needed for the shoulders and hips)
+    // a joint sits where its parent's bone carries it; a bone turns by its joint frame's turn from the rest pose
+    const at = (j: number) => { const par = PARENT[j]; p[j].copy(bindPos[j]).sub(bindPos[par]).applyQuaternion(d[par]).add(p[par]); };
+    const turn = (j: number) => d[j].multiplyQuaternions(f[j], this.restInv[j]);
+    turn(J.hips);
+    for (const j of [J.spine, J.chest, J.neck, J.head]) { at(j); turn(j); }
+
+    // ---- legs
+    for (let s = 0; s < 2; s++) {
+      const [th, sh, ft] = LEGS[s];
+      at(th);
+      // the knee points where the rig's knee points
+      tv.copy(cp[sh]).sub(cp[th]).applyAxisAngle(UP, this.legAim[s]);
+      this.limb(p[th], feet[s], tv, tv2.set(0, 0, 1).applyQuaternion(cq[J.hips]), bindPos[th].distanceTo(bindPos[sh]), bindPos[sh].distanceTo(bindPos[ft]), true, th, sh);
+      // a planted foot lies flat, turned the way the rig's foot is turned; a raised one does what the rig's does
+      tv.set(0, 0, 1).applyQuaternion(cq[ft]);
+      tq.setFromAxisAngle(UP, Math.atan2(tv.x, tv.z));
+      f[ft].copy(cq[ft]).premultiply(aimQ.setFromAxisAngle(UP, this.legAim[s])).slerp(tq, plant[s]);
+      turn(th); at(sh); turn(sh); at(ft); turn(ft);
     }
 
-    const k = this.legLen / RIG_LEG;
-    const hips = joints[J.hips];
-    p[J.hips].set(0, this.legLen + this.ankle + (hips.position.y - this.hipsBaseY) * k, hips.position.z * k);
-    for (let j = 1; j < joints.length; j++) {
-      const par = PARENT[j];
-      p[j].copy(this.bindPos[j]).sub(this.bindPos[par]).applyQuaternion(d[par]).add(p[par]);
+    // ---- arms
+    for (let s = 0; s < 2; s++) {
+      const [ar, fo, ha] = ARMS[s];
+      at(ar);
+      const a = bindPos[ar].distanceTo(bindPos[fo]), b = bindPos[fo].distanceTo(bindPos[ha]);
+      tv.copy(cp[ha]).sub(cp[ar]).applyQuaternion(backQ);
+      const aim = aimTurn(tv, tv.length() / this.rigArm[s], 0.1);
+      tv.applyAxisAngle(UP, aim).multiplyScalar((a + b) / this.rigArm[s]).add(p[ar]);
+      tv2.copy(cp[fo]).sub(cp[ar]).applyQuaternion(backQ).applyAxisAngle(UP, aim);
+      this.limb(p[ar], tv, tv2, ELBOW_REST, a, b, false, ar, fo);
+      f[ha].multiplyQuaternions(f[fo], joints[ha].quaternion);
+      turn(ar); at(fo); turn(fo); at(ha); turn(ha);
     }
-    // keep the model on the floor (its legs are proportioned differently from the procedural rig's)
+
+    // ---- keep the body off the floor when the feet are not carrying it (lying, rolling, airborne)
     let want = 0;
-    if (this.feetOnGround) want = this.ankle - Math.min(p[J.footL].y, p[J.footR].y);
-    else {
+    if (!grounded) {
       let low = Infinity;
       for (const j of [J.hips, J.chest, J.head]) low = Math.min(low, p[j].y);
       if (low < this.bodyMin) want = this.bodyMin - low;

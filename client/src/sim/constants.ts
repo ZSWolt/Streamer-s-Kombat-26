@@ -2,9 +2,11 @@
 export const FPS = 60;
 export const M = 1000;
 
-export const GRAVITY = 7;
-export const JUMP_VY = 152;
-export const JUMP_VX = 46;
+// Jumps are sized for a person, not a toy: about 1.4 m at the top, 0.63 s in the air.
+export const GRAVITY = 8;
+export const AIR_HIT_GRAVITY = 8;
+export const JUMP_VY = 150;
+export const JUMP_VX = 50;
 export const JUMP_SQUAT = 4;
 export const LAND_RECOVERY = 4;
 
@@ -19,7 +21,7 @@ export const RUN_SPEED = 66;
 
 export const STAGE_HALF = 5400;
 export const MAX_SEPARATION = 6400;
-export const PUSH_HALF = 260;
+export const PUSH_HALF = 330; // two bodies never stand closer than 0.66 m: fists up, not chest to chest
 
 export const MAX_METER = 1000;
 export const MAX_HP = 1000;
@@ -40,6 +42,22 @@ export const ROUND_END_FRAMES = 150;
 export const CHAR_INTRO_FRAMES = 60 * 4;
 
 export const INPUT_HISTORY = 32;
+
+// ---- anti-spam
+/** Doing a move again within this many frames of its end counts as repeating it. */
+export const REPEAT_MEMORY = 80;
+/** Damage (%) of a move by how many times in a row it has been repeated. */
+export const STALE_DAMAGE = [100, 82, 64, 48, 36, 28];
+/** Each repeat adds this much recovery, takes this much hitstun / blockstun off, and pushes this much further. */
+export const STALE_RECOVERY = 3;
+export const STALE_RECOVERY_MAX = 14;
+export const STALE_HITSTUN = 3;
+export const STALE_BLOCKSTUN = 2;
+export const STALE_PUSH = 8;
+/** From this many repeats on, the move no longer cancels into anything. */
+export const STALE_NO_CANCEL = 2;
+/** Frames after a back-dash before the next one. */
+export const BACKDASH_COOLDOWN = 26;
 
 // Input bits (absolute directions; the fighter converts to forward/back by facing)
 export const IN_UP = 1 << 0;

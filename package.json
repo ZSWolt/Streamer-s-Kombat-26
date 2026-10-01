@@ -8,20 +8,17 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "server": "node server/index.ts",
-    "host": "npm run build && node server/index.ts",
     "deploy": "node tools/deploy.mjs",
     "models": "python tools/models/build_all.py"
   },
   "dependencies": {
+    "peerjs": "^1.5.5",
     "postprocessing": "^6.39.5",
-    "three": "^0.186.1",
-    "ws": "^8.22.0"
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
     "@types/three": "^0.186.0",
-    "@types/ws": "^8.18.2",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
     "vitest": "^5.0.3"

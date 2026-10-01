@@ -25,10 +25,7 @@ const HYPE: Record<string, { e: string[]; text: string; color: string; style: St
   speedrun: { e: ['⏱️', '💨'], text: 'ANY% WORLD RECORD', color: '#53fc18', style: 'barrage' },
   boiz: { e: ['🧑', '👦', '🧔'], text: 'THE BOIZ!', color: '#cc5de8', style: 'swarm' },
   pickaxe: { e: ['⛏️', '💎'], text: 'CARRY!', color: '#4dd9ff', style: 'barrage' },
-  truck: { e: ['🚚', '🍫'], text: 'מיליון שוקולדים!', color: '#ff4d4d', style: 'swarm' },
-  redcarpet: { e: ['📸', '⭐'], text: 'THE PREMIERE', color: '#ffd84d', style: 'burst' },
-  blizzard: { e: ['❄️', '🧊'], text: 'BLIZZARD!', color: '#9fe3ff', style: 'rain' },
-  pinkmoney: { e: ['💸', '💖'], text: '10,000 ₪!', color: '#ff6fb5', style: 'rain' },
+  shekel: { e: ['🪙'], text: 'שקל שלם!', color: '#e0aa2a', style: 'rain' },
   rampage: { e: ['👊', '💥'], text: 'RAMPAGE!', color: '#e8b646', style: 'barrage' },
   highnoon: { e: ['🤠', '⭐', '🌵'], text: 'HIGH NOON', color: '#ffb347', style: 'burst' },
 };
@@ -88,8 +85,8 @@ export class Cinematics {
       this.cam.focusDist = 4.2 - Math.min(1, a.t) * 0.8;
       this.cam.focusSide = -dir;
       const k = (Math.sin(a.t * 22) + 1) / 2;
-      att.setOverride(P.lerpPose(P.ATTACKS.hype.wind, P.ATTACKS.hype.hit, k, new Float32Array(P.POSE_LEN)));
-      def.setOverride(P.lerpPose(P.HIT_MID, P.HIT_HIGH, (Math.sin(a.t * 18) + 1) / 2, new Float32Array(P.POSE_LEN)));
+      att.setOverride(P.lerpPose(att.lib.ATTACKS.hype.wind, att.lib.ATTACKS.hype.hit, k, new Float32Array(P.POSE_LEN)));
+      def.setOverride(P.lerpPose(def.lib.HIT_MID, def.lib.HIT_HIGH, (Math.sin(a.t * 18) + 1) / 2, new Float32Array(P.POSE_LEN)));
       a.hitTimer -= dt;
       if (a.t < a.dur - 0.45 && a.hitTimer <= 0) {
         a.hitTimer = 0.16;
@@ -126,10 +123,10 @@ export class Cinematics {
     this.cam.focusDist = a.t < 1.2 ? 5 : 3.6;
     this.cam.focusSide = -dir;
     const pose = new Float32Array(P.POSE_LEN);
-    if (a.t < 0.9) att.setOverride(P.lerpPose(P.GUARD, P.TAUNT, Math.min(1, a.t * 2), pose));
-    else if (a.t < 1.4) att.setOverride(P.ATTACKS.hype.hit);
-    else att.setOverride(P.WIN2);
-    if (!def.fx.hidden) def.setOverride(P.DIZZY);
+    if (a.t < 0.9) att.setOverride(P.lerpPose(att.lib.GUARD, att.lib.TAUNT, Math.min(1, a.t * 2), pose));
+    else if (a.t < 1.4) att.setOverride(att.lib.ATTACKS.hype.hit);
+    else att.setOverride(att.lib.WIN2);
+    if (!def.fx.hidden) def.setOverride(def.lib.DIZZY);
 
     this.once(10, 0.05, () => { this.renderer.flash('#000000', 0.6, 600); });
     this.once(11, 1.0, () => { audio.sfx('special', 0, 1); this.cam.shake(0.4); });
@@ -170,7 +167,7 @@ export class Cinematics {
       // IGZ
       case 'sleep24':
         this.once(30, 1.1, () => this.vfx.bigProp('⏰', dp.x, 3.2, 1.6, new THREE.Vector3(0, 0, 0), 2.5, 12));
-        if (a.t > 1.8) { def.setOverride(P.LYING); if (Math.random() < 0.05) this.vfx.emote(dp.x, 1, '💤', 0.7); }
+        if (a.t > 1.8) { def.setOverride(def.lib.LYING); if (Math.random() < 0.05) this.vfx.emote(dp.x, 1, '💤', 0.7); }
         break;
       case 'turtle':
         this.once(30, 1.3, () => { this.vfx.burst(dp.x, 1, '💨', 8, 4, 0.8); audio.sfx('teleport'); });
@@ -190,14 +187,14 @@ export class Cinematics {
         ctx.run('🚗', 1.1, 2.2);
         hit(30, 1.55);
         if (a.t > 1.55 && a.t < 2.2) { def.fx.offsetY += dt * 3; def.fx.spin += dt * 10; }
-        if (a.t > 2.2) { def.fx.offsetY = Math.max(0, def.fx.offsetY - dt * 6); def.setOverride(P.LYING); }
+        if (a.t > 2.2) { def.fx.offsetY = Math.max(0, def.fx.offsetY - dt * 6); def.setOverride(def.lib.LYING); }
         this.once(31, 2.4, () => { this.renderer.flash('#000000', 0.7, 1500); this.hud.bigText('WASTED', '', 'wasted', 2000); });
         break;
-      // MAOR SNACKS
+      // MAOR
       case 'vending':
         ctx.drop('#vending', 1.2, 0.1, 3.8);
-        this.once(30, 2.0, () => { def.fx.hidden = true; this.vfx.burst(dp.x, 1, '🍟', 10, 7, 0.6); this.vfx.burst(dp.x, 1, '🥨', 8, 6, 0.6); audio.sfx('coin'); });
-        text(31, 2.2, 'המכונה סנאקס', 'אזל מהמלאי', 'small', 1800);
+        this.once(30, 2.0, () => { def.fx.hidden = true; this.vfx.burst(dp.x, 1, '⚙️', 10, 7, 0.6); this.vfx.burst(dp.x, 1, '🔩', 8, 6, 0.6); audio.sfx('coin'); });
+        text(31, 2.2, 'המכונה', 'אזל מהמלאי', 'small', 1800);
         break;
       case 'clones':
         this.once(30, 1.1, () => { for (let i = 0; i < 3; i++) this.vfx.bigProp('🧔', dp.x + (i - 1) * 1.2, 3.5 + i, 1.4, new THREE.Vector3(0, -12, 0), 0.5); });
@@ -226,7 +223,7 @@ export class Cinematics {
       case 'dog':
         ctx.run('🐕', 1.0, 1.4);
         this.once(30, 1.35, () => audio.sfx('bark'));
-        if (a.t > 1.4) { def.setOverride(P.LYING); def.fx.offsetX += dir * dt * 4; }
+        if (a.t > 1.4) { def.setOverride(def.lib.LYING); def.fx.offsetX += dir * dt * 4; }
         if (a.t > 2.8) def.fx.hidden = true;
         break;
       // DEVIDTUR
@@ -248,20 +245,13 @@ export class Cinematics {
         if (a.t > 1.3) def.fx.shrink = Math.max(0.35, def.fx.shrink - dt * 1.5);
         break;
       case 'dice': ctx.drop('🎲', 1.3, 0.1, 3.4); text(30, 1.9, '6', 'CRITICAL ROLL', 'small', 1500); break;
-      // SOLTIZ
+      // SHILO / ADAM
       case 'treasure': if (a.t > 1.1 && a.t < 3.4 && Math.random() < 0.6) this.vfx.rain('🪙', dp.x, 1, 0.6); ctx.sink('🪙', 1.8); break;
-      case 'chocolate': if (a.t > 1.0 && a.t < 3.4 && Math.random() < 0.7) this.vfx.rain('🍫', dp.x, 1, 0.7); ctx.sink('🍫', 1.6); break;
-      case 'credits': text(30, 1.3, 'THE END', 'בימוי: ' + ROSTER[m.f[a.att].char].he + ' · הפקה: סולטיז · תודה שצפיתם', 'credits', 2600); if (a.t > 1.3) def.setOverride(P.LYING); break;
-      case 'popcorn': if (a.t > 1.0 && a.t < 3.2 && Math.random() < 0.7) this.vfx.rain('🍿', dp.x, 1, 0.6); ctx.sink('🍿', 1.8); text(30, 1.4, 'SOLD OUT', 'THE PREMIERE', 'small', 1600); break;
-      case 'frozen': tint(30, 1.2, '#6fd3ff'); vanish(31, 2.4, '🧊', '❄️'); break;
-      case 'penguins':
-        tint(30, 1.0, '#6fd3ff', 0.5);
-        this.once(31, 1.2, () => { for (let i = 0; i < 4; i++) this.vfx.bigProp('🐧', ap.x - dir * (3 + i * 0.7), 0.5, 1.0, new THREE.Vector3(dir * 5, 0, 0), 1.6); });
-        if (a.t > 1.9) { def.setOverride(P.LYING); def.fx.offsetX += dir * dt * 3; }
-        if (a.t > 3.2) def.fx.hidden = true;
+      case 'piggy':
+        ctx.drop('🐷', 1.3, 0.12, 3.4);
+        this.once(30, 1.75, () => { this.vfx.burst(dp.x, 1, '🪙', 22, 9, 0.5); audio.sfx('coin'); });
+        text(31, 2.0, 'קופת חיסכון', 'PIGGY BANK', 'small', 1600);
         break;
-      case 'pool': text(30, 1.2, 'תיפול לבריכה!', '', 'small', 1600); ctx.sink('💦', 1.4); break;
-      case 'milkshake': ctx.drop('🥤', 1.3, 0.5, 3.4); tint(30, 1.8, '#ff9ac8', 0.7, 'hitM'); this.once(31, 2.0, () => this.vfx.burst(dp.x, 1, '💧', 14, 6, 0.5)); break;
       default: ctx.drop('💥', 1.3); break;
     }
 

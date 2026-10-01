@@ -338,6 +338,7 @@ export class CharSelect implements Screen {
     if (!res || locked) return;
     if (p === 1 && !this.cur[1].active) return;
     const v = new ProceduralFighterView(res.char, res.skin);
+    v.showcase = true;
     v.root.scale.setScalar(1.4);
     this.scene.add(v.root, v.shadow);
     this.views[p] = v;

@@ -1,5 +1,6 @@
 import { ROSTER } from '../data/roster';
 import * as C from '../sim/constants';
+import { specialWait } from '../sim/match';
 import { movesFor } from '../sim/moves';
 import type { MatchState } from '../sim/types';
 import { St } from '../sim/types';
@@ -84,7 +85,8 @@ export class Cpu {
     const F = this.fwd(m);
     const B = this.back(m);
     const sp = ROSTER[me.char].specials;
-    const hasShot = sp.findIndex((s) => s.spec.kind === 'projectile' || s.spec.kind === 'summon');
+    const ready = (i: number) => specialWait(m, this.p, i) === 0;
+    const hasShot = sp.findIndex((s, i) => (s.spec.kind === 'projectile' || s.spec.kind === 'summon') && ready(i));
     const dirFor = (i: number) => (i === 0 ? 0 : i === 1 ? F : C.IN_DOWN);
 
     if (m.phase === 'finish' && m.winner === this.p) {
@@ -113,7 +115,8 @@ export class Cpu {
       if (r < d.aggression * 0.5) { this.push(F, 1); this.push(0, 2); this.push(F, 1); this.push(F, 10); }
       else if (r < d.aggression * 0.5 + d.special * 0.6) {
         const i = Math.floor(Math.random() * 3);
-        this.push(dirFor(i), 3); this.push(dirFor(i) | C.IN_SP, 2); this.push(0, 30);
+        if (ready(i)) { this.push(dirFor(i), 3); this.push(dirFor(i) | C.IN_SP, 2); this.push(0, 30); }
+        else this.push(F, 10);
       } else if (r < 0.8) this.push(F, 14);
       else { this.push(C.IN_UP | F, 3); this.push(0, 12); this.push(C.IN_HK, 2); this.push(0, 30); }
       return;
@@ -125,7 +128,7 @@ export class Cpu {
       ];
       const c = combos[Math.floor(Math.random() * combos.length)];
       for (const b of c) { this.push(b, 2); this.push(b & C.IN_DOWN, 7); }
-      if (Math.random() < d.special) { const i = Math.floor(Math.random() * 3); this.push(dirFor(i), 2); this.push(dirFor(i) | C.IN_SP, 2); }
+      if (Math.random() < d.special) { const i = Math.floor(Math.random() * 3); if (ready(i)) { this.push(dirFor(i), 2); this.push(dirFor(i) | C.IN_SP, 2); } }
       this.push(0, 20);
     } else if (r < d.combo + 0.12) {
       this.push(C.IN_LP | C.IN_LK, 3); this.push(0, 30);

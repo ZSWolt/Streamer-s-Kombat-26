@@ -57,6 +57,13 @@ export class App {
     document.body.appendChild(this.fpsEl);
     this.applySettings();
     this.input.onUi(() => { this.idleT = 0; });
+    // In full screen the browser keeps Esc for itself (it leaves full screen and the page never hears the key).
+    // Where the Keyboard Lock API exists, ask for Esc so it opens the pause menu like everywhere else.
+    document.addEventListener('fullscreenchange', () => {
+      const kb = (navigator as unknown as { keyboard?: { lock?: (k: string[]) => Promise<void>; unlock?: () => void } }).keyboard;
+      if (document.fullscreenElement) void kb?.lock?.(['Escape']).catch(() => {});
+      else kb?.unlock?.();
+    });
   }
 
   applySettings() {
@@ -81,6 +88,15 @@ export class App {
     await preloadModels((p) => boot.progress(p * 0.4, 0));
     await generatePortraits((p) => boot.progress(0.4 + p * 0.55, Math.round(p * ROSTER.length)));
     boot.progress(1, ROSTER.length);
+    // an invite link (…?r=CODE) goes straight into that room: no intro, no menus
+    const invite = new URLSearchParams(location.search).get('r') ?? new URLSearchParams(location.search).get('room') ?? '';
+    if (invite) {
+      const unlock = () => { audio.unlock(); removeEventListener('pointerdown', unlock); removeEventListener('keydown', unlock); };
+      addEventListener('pointerdown', unlock);
+      addEventListener('keydown', unlock);
+      this.goLobby(invite);
+      return;
+    }
     boot.ready(() => {
       audio.unlock();
       if (this.settings.fullscreen && !document.fullscreenElement) void document.documentElement.requestFullscreen?.().catch(() => {});
@@ -161,10 +177,10 @@ export class App {
     this.setScreen(this.menus.credits(() => this.goMenu(6)));
   }
 
-  goLobby() {
+  goLobby(code = '') {
     this.ensureBackdrop(true);
     this.canvasMode('blur');
-    this.setScreen(new Lobby(this));
+    this.setScreen(new Lobby(this, code));
   }
 
   goSelect(mode: Mode, preset?: number) {

@@ -81,6 +81,8 @@ export interface MoveDef {
   throw?: boolean;
   special?: SpecialDef;
   hype?: boolean;
+  /** specials: frames from the start of the move until it can be used again */
+  cooldown?: number;
 }
 
 export interface Projectile {
@@ -153,6 +155,14 @@ export interface FighterState {
   lastHitFrame: number;
   idleFrames: number;
   crouched: boolean; // hit/blocked while crouching
+  /** frames before each special can be used again */
+  cd0: number; cd1: number; cd2: number;
+  /** anti-spam memory: the last two different moves and how often each has just been repeated */
+  lastMove: number; lastN: number; prevMove: number; prevN: number;
+  /** frames until that memory clears */
+  repeatT: number;
+  /** frames before another back-dash */
+  dashCd: number;
 }
 
 export type Phase = 'intro' | 'roundCall' | 'fight' | 'ko' | 'finish' | 'banality' | 'roundEnd' | 'matchEnd' | 'timeOver';

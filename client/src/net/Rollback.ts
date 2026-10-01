@@ -2,8 +2,10 @@ import * as C from '../sim/constants';
 import { cloneMatch, createMatch, hashMatch, step } from '../sim/match';
 import type { MatchConfig, MatchState, SimEvent } from '../sim/types';
 import type { Driver } from '../game/Battle';
-import type { PeerLink } from './Peer';
-import type { LobbyClient } from './LobbyClient';
+
+/** What a session needs from the link to the other player (net/Peer.ts) and from the room (net/Room.ts). */
+export interface GameLink { send(m: unknown): void; onMessage(cb: (m: any) => void): () => void }
+export interface RoomLink { send(m: unknown): void; on(t: string, h: (m: any) => void): () => void }
 
 const MAX_PREDICT = 10;
 const MAX_STEPS = 3;
@@ -33,13 +35,20 @@ export class RollbackSession implements Driver {
   private lastHashed = 0;
   private specSent = 0;
   private stallCounter = 0;
+  /** how many frames ahead of the peer we look from here, and how far ahead the peer says it looks from there */
+  private localAdv = 0;
+  private remoteAdv = 0;
+  /** frames re-simulated in the last second (shown next to the ping) */
+  rollbackFrames = 0;
+  private rbAcc = 0;
+  private rbT = 0;
   desync = false;
   lastRollback = 0;
   connectionLost = false;
   private lastPacket = performance.now();
   private readLocal: () => number;
 
-  constructor(cfg: MatchConfig, public me: 0 | 1, private link: PeerLink, private lobby: LobbyClient, readLocal: () => number, public delay = 2) {
+  constructor(cfg: MatchConfig, public me: 0 | 1, private link: GameLink, private lobby: { send(m: unknown): void }, readLocal: () => number, public delay = 2) {
     this.m = createMatch(cfg);
     this.p = cloneMatch(this.m);
     this.readLocal = readLocal;
@@ -64,7 +73,12 @@ export class RollbackSession implements Driver {
       }
       while (this.remote.has(this.lastConfirmedRemote + 1)) this.lastConfirmedRemote++;
       this.remoteAck = Math.max(this.remoteAck, msg.ack ?? 0);
-      this.remoteCur = Math.max(this.remoteCur, msg.cur ?? 0);
+      if ((msg.cur ?? 0) >= this.remoteCur) {
+        this.remoteCur = msg.cur ?? 0;
+        // both numbers are inflated by the same travel time, so their difference is the real lead
+        this.localAdv = this.m.frame - this.remoteCur;
+        this.remoteAdv = msg.adv ?? this.localAdv;
+      }
     } else if (msg.k === 'cs') {
       const mine = this.hashes.get(msg.frame);
       if (mine !== undefined && mine !== msg.hash) this.desync = true;
@@ -87,7 +101,7 @@ export class RollbackSession implements Driver {
     const to = this.m.frame + this.delay;
     const bits: number[] = [];
     for (let f = from; f <= to && bits.length < 40; f++) bits.push(this.local.get(f) ?? 0);
-    this.link.send({ k: 'in', from, bits, ack: this.lastConfirmedRemote, cur: this.m.frame });
+    this.link.send({ k: 'in', from, bits, ack: this.lastConfirmedRemote, cur: this.m.frame, adv: this.localAdv });
   }
 
   private doRollback(events: SimEvent[]) {
@@ -105,6 +119,7 @@ export class RollbackSession implements Driver {
     }
     this.m = r;
     this.lastRollback = target - from + 1;
+    this.rbAcc += this.lastRollback;
   }
 
   private collect(src: SimEvent[], out: SimEvent[]) {
@@ -119,6 +134,8 @@ export class RollbackSession implements Driver {
   tick(dt: number) {
     const events: SimEvent[] = [];
     if (this.pendingRollback !== Infinity) this.doRollback(events);
+    this.rbT += dt;
+    if (this.rbT >= 1) { this.rollbackFrames = Math.round(this.rbAcc / this.rbT); this.rbAcc = 0; this.rbT = 0; }
     this.acc += Math.min(dt, 0.1);
     let steps = 0;
     while (this.acc >= 1 / C.FPS && steps < MAX_STEPS) {
@@ -126,8 +143,10 @@ export class RollbackSession implements Driver {
       const next = this.m.frame + 1;
       // don't run too far ahead of the peer
       if (next - this.lastConfirmedRemote > MAX_PREDICT) { this.acc = 0; break; }
-      // gentle time sync: if we're ahead of the peer, occasionally skip a frame
-      if (this.m.frame - this.remoteCur > 2 && ++this.stallCounter % 8 === 0) continue;
+      // time sync: only the side that is really ahead waits, a frame now and then, until the two line up
+      // (comparing our lead with the lead the peer reports cancels the network delay out of both)
+      const lead = (this.localAdv - this.remoteAdv) / 2;
+      if (lead > 1.5 && ++this.stallCounter % (lead > 4 ? 3 : 6) === 0) continue;
       this.local.set(next + this.delay, this.readLocal());
       this.snaps.set(next, cloneMatch(this.m));
       this.p = cloneMatch(this.m);
@@ -182,7 +201,7 @@ export class SpectatorDriver implements Driver {
   private started = false;
   private off: () => void;
 
-  constructor(cfg: MatchConfig, lobbyClient: LobbyClient) {
+  constructor(cfg: MatchConfig, lobbyClient: RoomLink) {
     this.m = createMatch(cfg);
     this.p = cloneMatch(this.m);
     this.off = lobbyClient.on('spec', (msg) => {

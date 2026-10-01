@@ -22,7 +22,8 @@ export interface Settings {
   chatSpeed: number; // 0.5..2
   inputDisplay: boolean;
   nickname: string;
-  inputDelay: number; // online
+  inputDelay: number; // online: frames of input delay, -1 = pick it from the ping
+  netVersion: number;
   p1Keys: KeyMap;
   p2Keys: KeyMap;
   keysVersion: number;
@@ -31,7 +32,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   difficulty: 1, rounds: 2, roundTime: 99, music: 0.7, sfx: 0.8, voices: 1, announcerLang: 'he', battleIntro: true,
   hints: true, quality: 'high', resScale: 1, fullscreen: false, showFps: false, shake: 1, effects: 1, streamHud: true,
-  chatSpeed: 1, inputDisplay: false, nickname: '', inputDelay: 2,
+  chatSpeed: 1, inputDisplay: false, nickname: '', inputDelay: -1, netVersion: 2,
   p1Keys: structuredClone(DEFAULT_P1), p2Keys: structuredClone(DEFAULT_P2), keysVersion: 2,
 };
 
@@ -55,6 +56,11 @@ export function loadSettings(): Settings {
       // new comfortable default layout (L = special, Space = block)
       s.p1Keys = structuredClone(DEFAULT_P1);
       s.keysVersion = 2;
+    }
+    if ((saved.netVersion ?? 1) < 2) {
+      // the input delay now follows the measured ping unless the player sets it by hand
+      s.inputDelay = -1;
+      s.netVersion = 2;
     }
     return s;
   } catch {

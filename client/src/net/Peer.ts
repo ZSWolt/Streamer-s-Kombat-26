@@ -1,85 +1,93 @@
-import type { LobbyClient } from './LobbyClient';
+import type { DataConnection, RoomClient } from './Room';
 
-const ICE: RTCIceServer[] = [
-  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
-];
+const P2P_WAIT = 7000;
 
 /**
- * Game data link between the two players. Tries a direct WebRTC DataChannel (unreliable/unordered = lowest latency);
- * if that can't connect within a few seconds it falls back to relaying through the host server's WebSocket.
+ * Game data link between the two players of a match: a direct WebRTC data channel (unordered, so one late packet
+ * never holds up the ones behind it). If the two browsers cannot reach each other within a few seconds the packets
+ * go through the room (the host) instead. Also measures the round trip, which sets the input delay and the ping
+ * shown on screen.
  */
 export class PeerLink {
-  private pc: RTCPeerConnection | null = null;
-  private dc: RTCDataChannel | null = null;
-  private relay = false;
+  private dc: DataConnection | null = null;
   private offs: (() => void)[] = [];
   private listeners = new Set<(m: any) => void>();
+  private timer = 0;
+  private samples = 0;
   mode: 'connecting' | 'p2p' | 'relay' = 'connecting';
-  private readyCb: (() => void) | null = null;
+  /** smoothed round trip to the other player, ms */
+  rtt = 0;
 
-  constructor(private lobby: LobbyClient, private peerId: string, private initiator: boolean) {}
+  constructor(private room: RoomClient, private peerPid: string, private initiator: boolean) {}
 
   start(): Promise<'p2p' | 'relay'> {
     return new Promise((resolve) => {
       const done = (mode: 'p2p' | 'relay') => {
         if (this.mode !== 'connecting') return;
         this.mode = mode;
-        this.relay = mode === 'relay';
-        resolve(mode);
-        this.readyCb?.();
-      };
-      this.offs.push(this.lobby.on('relay', (m) => { if (this.relay || this.mode === 'connecting') this.emit(m.data); }));
-      const fallback = setTimeout(() => done('relay'), 5000);
-      try {
-        const pc = new RTCPeerConnection({ iceServers: ICE });
-        this.pc = pc;
-        pc.onicecandidate = (e) => { if (e.candidate) this.lobby.send({ t: 'signal', to: this.peerId, data: { candidate: e.candidate } }); };
-        const setup = (dc: RTCDataChannel) => {
-          this.dc = dc;
-          dc.onopen = () => { clearTimeout(fallback); done('p2p'); };
-          dc.onmessage = (e) => { try { this.emit(JSON.parse(e.data)); } catch { /* ignore */ } };
-        };
-        if (this.initiator) {
-          setup(pc.createDataChannel('game', { ordered: false, maxRetransmits: 0 }));
-          // give the other side a moment to create its PeerLink and subscribe to signals
-          setTimeout(() => { void pc.createOffer().then(async (o) => { await pc.setLocalDescription(o); this.lobby.send({ t: 'signal', to: this.peerId, data: { sdp: pc.localDescription } }); }); }, 700);
-        } else {
-          pc.ondatachannel = (e) => setup(e.channel);
-        }
-        this.offs.push(this.lobby.on('signal', async (m) => {
-          if (m.from !== this.peerId) return;
-          const d = m.data;
-          try {
-            if (d.sdp) {
-              await pc.setRemoteDescription(d.sdp);
-              if (d.sdp.type === 'offer') {
-                const a = await pc.createAnswer();
-                await pc.setLocalDescription(a);
-                this.lobby.send({ t: 'signal', to: this.peerId, data: { sdp: pc.localDescription } });
-              }
-            } else if (d.candidate) await pc.addIceCandidate(d.candidate);
-          } catch { /* ignore bad signaling */ }
-        }));
-      } catch {
         clearTimeout(fallback);
-        done('relay');
-      }
+        // a short burst of pings so the match starts with a real measurement
+        let n = 0;
+        const burst = window.setInterval(() => { this.ping(); if (++n >= 5) clearInterval(burst); }, 70);
+        window.setTimeout(() => {
+          this.timer = window.setInterval(() => this.ping(), 1000);
+          resolve(mode);
+        }, 520);
+      };
+      // packets that came through the room are always accepted: each side picks its own way to send
+      this.offs.push(this.room.on('relay', (m) => this.onData(m.data)));
+      const fallback = window.setTimeout(() => done('relay'), P2P_WAIT);
+      const setup = (dc: DataConnection) => {
+        this.dc = dc;
+        const opened = () => done('p2p');
+        if (dc.open) opened(); else dc.on('open', opened);
+        dc.on('data', (d) => this.onData(d));
+        dc.on('close', () => { if (this.dc === dc) this.dc = null; if (this.mode === 'p2p') this.mode = 'relay'; });
+        dc.on('error', () => { /* falls back to the room */ });
+      };
+      try {
+        if (this.initiator) {
+          // give the other side a moment to start listening
+          window.setTimeout(() => {
+            const peer = this.room.peer;
+            if (!peer || this.mode !== 'connecting') return;
+            setup(peer.connect(this.peerPid, { label: 'game', reliable: false, serialization: 'json' }));
+          }, 300);
+        } else this.offs.push(this.room.awaitGameConn(this.peerPid, setup));
+      } catch { done('relay'); }
     });
   }
 
-  private emit(m: any) { for (const l of this.listeners) l(m); }
+  private ping() { this.send({ k: 'pg', t: performance.now() }); }
+
+  private onData(m: any) {
+    if (!m) return;
+    if (m.k === 'pg') { this.send({ k: 'po', t: m.t }); return; }
+    if (m.k === 'po') {
+      const r = performance.now() - m.t;
+      this.rtt = this.samples++ === 0 ? r : this.samples < 6 ? Math.min(this.rtt, r) : this.rtt + (r - this.rtt) * 0.2;
+      return;
+    }
+    for (const l of this.listeners) l(m);
+  }
 
   onMessage(cb: (m: any) => void) { this.listeners.add(cb); return () => this.listeners.delete(cb); }
 
   send(m: unknown) {
-    if (this.dc && this.dc.readyState === 'open' && !this.relay) this.dc.send(JSON.stringify(m));
-    else this.lobby.send({ t: 'relay', data: m });
+    if (this.dc?.open) void this.dc.send(m);
+    else this.room.send({ t: 'relay', data: m });
   }
 
   close() {
+    clearInterval(this.timer);
     this.offs.forEach((o) => o());
     this.dc?.close();
-    this.pc?.close();
+    this.dc = null;
     this.listeners.clear();
   }
+}
+
+/** Frames of input delay that hide this much round trip (ms) without making the controls feel heavy. */
+export function autoDelay(rtt: number): number {
+  return rtt < 28 ? 1 : rtt < 75 ? 2 : rtt < 125 ? 3 : 4;
 }

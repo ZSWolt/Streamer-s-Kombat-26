@@ -43,17 +43,20 @@ VOICES = {'he': 'he-IL-AvriNeural', 'en': 'en-US-GuyNeural'}
 
 EN_SPOKEN = {
     'odedsvr': 'Oded S.V.R.', 'ronengg': 'Ronen G.G.', 'igz': 'I.G.Z.', 'liorslife': "Lior's Life", 'psyqr': 'Psy Q.R.',
-    'sasivetheboiz': 'Sasi and the Boiz', 'devidtur': 'David Tur', 'pedrofederer': 'Pedro Federer', 'maorameleh': 'Maor Snacks', 'philip': 'Philip', 'adam': 'Adam Drakes',
-    'k0nkamc': 'Konka M.C.', 'masterohad': 'Master Ohad', 'shotist': 'Shotist', 'inde': 'Inde', 'nave': 'Nave', 'shoval': 'Shoval',
-    'paz': 'Paz', 'ori': 'Ori',
+    'sasivetheboiz': 'Sasi and the Boiz', 'devidtur': 'David Tur', 'pedrofederer': 'Pedro Federer', 'maorameleh': 'Maor', 'shilo': 'Shilo', 'philip': 'Philip', 'adam': 'Adam Drakes',
+    'k0nkamc': 'Konka M.C.', 'masterohad': 'Master Ohad', 'shotist': 'Shotist', 'inde': 'Inde',
 }
+
+
+# Hebrew names the voice would otherwise misread get vowel points here.
+HE_SPOKEN = {'shotist': 'שׁוֹ', 'shilo': 'שִׁילֹה'}
 
 
 def roster_names():
     src = open(os.path.join(ROOT, 'client', 'src', 'data', 'roster.ts'), encoding='utf8').read()
     out = {}
     for m in re.finditer(r"id: '([\w]+)', name: '([^']+)', he: '([^']+)'", src):
-        out['name_' + m.group(1)] = (m.group(3), EN_SPOKEN.get(m.group(1), m.group(2).title()))
+        out['name_' + m.group(1)] = (HE_SPOKEN.get(m.group(1), m.group(3)), EN_SPOKEN.get(m.group(1), m.group(2).title()))
     return out
 
 

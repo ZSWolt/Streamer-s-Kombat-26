@@ -47,6 +47,7 @@ export function hashMatch(m: MatchState): number {
   for (const f of m.f) {
     mix(f.x); mix(f.y); mix(f.vx); mix(f.vy); mix(f.hp); mix(f.meter); mix(f.st); mix(f.stFrame);
     mix(f.move); mix(f.moveFrame); mix(f.facing); mix(f.hitstun); mix(f.blockstun); mix(f.roundWins);
+    mix(f.cd0); mix(f.cd1); mix(f.cd2); mix(f.lastMove); mix(f.lastN); mix(f.repeatT);
   }
   for (const p of m.proj) { mix(p.x); mix(p.y); mix(p.owner); mix(p.life); }
   return h >>> 0;
@@ -141,6 +142,7 @@ function stepFight(m: MatchState, inputs: [number, number]) {
   const fin = m.phase === 'finish';
   for (let p = 0; p < 2; p++) {
     const f = m.f[p];
+    tickTimers(f);
     if (f.hitstop > 0) { f.hitstop--; bufferInput(f, inputs[p]); continue; }
     control(m, p, inputs[p]);
     advance(m, p);
@@ -160,6 +162,55 @@ function stepFight(m: MatchState, inputs: [number, number]) {
   }
   if (m.phase === 'fight') checkKo(m);
   if (m.phase === 'finish') stepFinish(m);
+}
+
+function tickTimers(f: FighterState) {
+  if (f.cd0 > 0) f.cd0--;
+  if (f.cd1 > 0) f.cd1--;
+  if (f.cd2 > 0) f.cd2--;
+  if (f.dashCd > 0) f.dashCd--;
+  if (f.repeatT > 0 && --f.repeatT === 0) { f.lastMove = -1; f.prevMove = -1; f.lastN = 0; f.prevN = 0; }
+}
+
+// ---- anti-spam: a move repeated over and over (or two moves alternated) goes stale — weaker, slower to recover,
+// less stun, more pushback, no cancels — until the fighter does something else or backs off for a moment.
+
+function noteRepeat(m: MatchState, p: number, id: number, mv: MoveDef) {
+  const f = m.f[p];
+  if (id === f.lastMove) f.lastN++;
+  else if (id === f.prevMove) {
+    const n = f.prevN + 1;
+    f.prevMove = f.lastMove; f.prevN = f.lastN;
+    f.lastMove = id; f.lastN = n;
+  } else {
+    f.prevMove = f.lastMove; f.prevN = f.lastN;
+    f.lastMove = id; f.lastN = 0;
+  }
+  if (f.lastN > 9) f.lastN = 9;
+  f.repeatT = totalFrames(mv) + C.REPEAT_MEMORY;
+  if (f.lastN >= 2) emit(m, { type: 'stale', p, a: f.lastN });
+}
+
+/** How stale the fighter's current attack is (0 = fresh). Specials and hype moves have cooldowns instead. */
+export function staleness(f: FighterState, mv: MoveDef): number {
+  return mv.special || mv.hype || f.move !== f.lastMove ? 0 : f.lastN;
+}
+
+/** Extra recovery frames a stale move costs. */
+export function staleRecovery(f: FighterState, mv: MoveDef): number {
+  return Math.min(C.STALE_RECOVERY_MAX, staleness(f, mv) * C.STALE_RECOVERY);
+}
+
+/** Frames left before special `slot` (0..2) is ready. A fighter's own shots must also be gone before more fly. */
+export function specialWait(m: MatchState, p: number, slot: number): number {
+  const f = m.f[p];
+  const cd = slot === 0 ? f.cd0 : slot === 1 ? f.cd1 : f.cd2;
+  if (cd > 0) return cd;
+  const sp = ROSTER[f.char].specials[slot];
+  if (sp && sp.spec.kind === 'projectile') {
+    for (const pr of m.proj) if (pr.owner === p && pr.kind === 'shot' && !pr.dead && !pr.reflected) return 1;
+  }
+  return 0;
 }
 
 function bufferInput(f: FighterState, input: number) {
@@ -196,18 +247,21 @@ function pickMove(m: MatchState, f: FighterState, btn: number, inp: number, air:
     if (btn & C.IN_LP) return MV.jLP;
     return -1;
   }
-  // classic arcade motions: ↓↘→+LP, ↓↙←+HP, →↓↘+LK
-  if (btn & C.IN_LP && motion(f, [2, 3, 6])) return MV.SP0;
-  if (btn & C.IN_HP && motion(f, [2, 1, 4])) return MV.SP1;
-  if (btn & C.IN_LK && motion(f, [6, 2, 3])) return MV.SP2;
+  const p = m.f[0] === f ? 0 : 1;
+  const ready = (slot: number) => specialWait(m, p, slot) === 0;
+  // classic arcade motions: ↓↘→+LP, ↓↙←+HP, →↓↘+LK (a special still cooling down leaves the plain attack)
+  if (btn & C.IN_LP && motion(f, [2, 3, 6]) && ready(0)) return MV.SP0;
+  if (btn & C.IN_HP && motion(f, [2, 1, 4]) && ready(1)) return MV.SP1;
+  if (btn & C.IN_LK && motion(f, [6, 2, 3]) && ready(2)) return MV.SP2;
   const throwCombo = ((btn & C.IN_LP) && (inp & C.IN_LK || recentPress(f, C.IN_LK, 3))) ||
     ((btn & C.IN_LK) && (inp & C.IN_LP || recentPress(f, C.IN_LP, 3)));
   if (throwCombo) return MV.THROW;
   if (btn & C.IN_SP) {
     if (inp & C.IN_BLOCK && f.meter >= C.MAX_METER) return MV.HYPE;
-    if (down || recentPress(f, C.IN_DOWN, 8)) return MV.SP2;
-    if (fwd || recentPress(f, fwdBit(f), 8)) return MV.SP1;
-    return MV.SP0;
+    const slot = down || recentPress(f, C.IN_DOWN, 8) ? 2 : fwd || recentPress(f, fwdBit(f), 8) ? 1 : 0;
+    if (ready(slot)) return MV.SP0 + slot;
+    if (f.history[f.history.length - 1] & ~f.prevInput & C.IN_SP) emit(m, { type: 'cooldown', p, a: slot });
+    return -1;
   }
   if (btn & C.IN_HK) return down ? MV.cHK : MV.HK;
   if (btn & C.IN_HP) return down ? MV.cHP : fwd ? MV.fHP : MV.HP;
@@ -237,8 +291,11 @@ function startMove(m: MatchState, p: number, id: number) {
     const heal = ROSTER[f.char].hype.spec?.heal;
     if (heal) f.hp = Math.min(C.MAX_HP, f.hp + heal);
   } else if (mv.special) {
+    const cd = mv.cooldown ?? 90;
+    if (id === MV.SP0) f.cd0 = cd; else if (id === MV.SP1) f.cd1 = cd; else f.cd2 = cd;
     emit(m, { type: 'special', p, s: mv.special.spec.vfx, a: id });
   } else {
+    noteRepeat(m, p, id, mv);
     emit(m, { type: 'swing', p, s: mv.key, a: mv.damage });
   }
 }
@@ -272,7 +329,7 @@ function control(m: MatchState, p: number, rawInput: number) {
   if (f.st === St.Attack && btn) {
     const cur = movesFor(f.char)[f.move];
     const window = f.moveFrame >= cur.startup && f.moveFrame <= cur.startup + cur.active + 10;
-    if (f.moveHit && window && cur.cancel !== 'none') {
+    if (f.moveHit && window && cur.cancel !== 'none' && staleness(f, cur) < C.STALE_NO_CANCEL) {
       const cand = pickMove(m, f, btn, inp, !grounded(f));
       if (cand >= 0) {
         const nm = movesFor(f.char)[cand];
@@ -305,8 +362,8 @@ function control(m: MatchState, p: number, rawInput: number) {
     f.dashTapFrame = m.frame;
   }
   if (pressed & bb) {
-    if (m.frame - f.dashTapBack <= C.DASH_WINDOW && f.st !== St.DashB) {
-      setState(f, St.DashB); f.dashTapBack = -99; emit(m, { type: 'dash', p, a: -1 }); return;
+    if (m.frame - f.dashTapBack <= C.DASH_WINDOW && f.st !== St.DashB && f.dashCd <= 0) {
+      setState(f, St.DashB); f.dashTapBack = -99; f.dashCd = C.DASH_B_FRAMES + C.BACKDASH_COOLDOWN; emit(m, { type: 'dash', p, a: -1 }); return;
     }
     f.dashTapBack = m.frame;
   }
@@ -438,7 +495,7 @@ function advanceAttack(m: MatchState, p: number) {
   if (mv.throw && fr === mv.startup) tryThrow(m, p);
   if (mv.hype && fr === 1) f.invuln = 30;
 
-  const total = totalFrames(mv);
+  const total = totalFrames(mv) + staleRecovery(f, mv);
   if (mv.air) {
     if (grounded(f) && fr > 1) { setState(f, St.Land); f.move = -1; return; }
     if (fr > total) { f.st = St.Air; f.move = -1; }
@@ -471,7 +528,7 @@ function tryThrow(m: MatchState, p: number) {
   setState(f, St.Throwing);
   setState(o, St.Thrown);
   o.facing = (-f.facing) as 1 | -1;
-  o.x = f.x + f.facing * 420;
+  o.x = f.x + f.facing * (C.PUSH_HALF * 2 - 80);
   f.pendingDamage = 120;
   emit(m, { type: 'throw', p });
 }
@@ -479,7 +536,7 @@ function tryThrow(m: MatchState, p: number) {
 function physics(m: MatchState, f: FighterState, passive: boolean) {
   const airborne = f.y > 0 || f.vy > 0;
   if (airborne) {
-    f.vy -= f.st === St.AirHit ? C.GRAVITY + 1 : C.GRAVITY;
+    f.vy -= f.st === St.AirHit ? C.AIR_HIT_GRAVITY : C.GRAVITY;
   }
   f.x += f.vx;
   f.y += f.vy;
@@ -622,6 +679,8 @@ export function applyStrike(m: MatchState, a: number, mv: MoveDef) {
   const def = m.f[d];
   att.moveHit = true;
   att.moveHits++;
+  const stale = staleness(att, mv);
+  const push = mv.pushback + stale * C.STALE_PUSH;
 
   // Counter stance
   if (def.counterFrames > 0 && def.st === St.Attack) {
@@ -660,8 +719,8 @@ export function applyStrike(m: MatchState, a: number, mv: MoveDef) {
 
   if (canBlock) {
     setState(def, blk.crouch ? St.BlockCrouch : St.BlockStand);
-    def.blockstun = mv.blockstun;
-    def.vx = -mv.pushback * def.facing;
+    def.blockstun = Math.max(4, mv.blockstun - stale * C.STALE_BLOCKSTUN);
+    def.vx = -push * def.facing;
     def.wasBlocking = true;
     if (mv.special || mv.hype) {
       const chip = Math.max(1, (mv.damage / 8) | 0);
@@ -670,7 +729,7 @@ export function applyStrike(m: MatchState, a: number, mv: MoveDef) {
     att.meter = Math.min(C.MAX_METER, att.meter + 8);
     def.meter = Math.min(C.MAX_METER, def.meter + 12);
     att.hitstop = mv.hitstop - 2; def.hitstop = mv.hitstop - 2;
-    wallPush(att, def, mv.pushback);
+    wallPush(att, def, push);
     emit(m, { type: 'block', p: d, x: hitX, y: hitY, b: mv.damage >= 90 ? 2 : mv.damage >= 55 ? 1 : 0 });
     return;
   }
@@ -679,7 +738,7 @@ export function applyStrike(m: MatchState, a: number, mv: MoveDef) {
   def.comboCount = inCombo ? def.comboCount + 1 : 1;
   if (!inCombo) def.comboDamage = 0;
   const base = mv.hype ? 280 : mv.damage;
-  const dmg = damage(m, att, def, base, mv.hype ? 100 : comboScale(def.comboCount));
+  const dmg = damage(m, att, def, base, mv.hype ? 100 : (comboScale(def.comboCount) * C.STALE_DAMAGE[Math.min(stale, C.STALE_DAMAGE.length - 1)] / 100) | 0);
   def.comboDamage += dmg;
   const heavy = mv.damage >= 90 ? 2 : mv.damage >= 55 ? 1 : 0;
 
@@ -704,7 +763,7 @@ export function applyStrike(m: MatchState, a: number, mv: MoveDef) {
 
   const airborne = !grounded(def) || def.st === St.AirHit;
   if (mv.launch) {
-    launch(def, [mv.launch[0] * att.facing, mv.launch[1] - def.juggle * 20]);
+    launch(def, [mv.launch[0] * att.facing, Math.max(60, mv.launch[1] - def.juggle * 20 - stale * 18)]);
   } else if (airborne) {
     def.juggle++;
     launch(def, [30 * att.facing, Math.max(30, 80 - def.juggle * 15)]);
@@ -715,9 +774,10 @@ export function applyStrike(m: MatchState, a: number, mv: MoveDef) {
   } else {
     setState(def, St.Hitstun);
     def.st = St.Hitstun;
-    def.hitstun = mv.hitstun;
-    def.vx = mv.pushback * att.facing;
-    wallPush(att, def, mv.pushback);
+    // long combos and stale moves stun less, so nothing loops for ever
+    def.hitstun = Math.max(8, mv.hitstun - stale * C.STALE_HITSTUN - Math.max(0, def.comboCount - 4) * 2);
+    def.vx = push * att.facing;
+    wallPush(att, def, push);
   }
   emit(m, { type: 'hit', p: d, a: dmg, x: hitX, y: hitY, b: heavy, s: mv.key });
   if (def.comboCount >= 2) emit(m, { type: 'combo', p: a, a: def.comboCount, b: def.comboDamage });

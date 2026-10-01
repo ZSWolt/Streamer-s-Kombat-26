@@ -97,6 +97,59 @@ describe('simulation', () => {
     expect(m.winner).toBe(0);
   });
 
+  it('a move repeated over and over goes stale: less damage, slower recovery', () => {
+    const jab = (n: number) => {
+      const m = createMatch(cfg({ roundTime: 0 }));
+      toFight(m);
+      let last = 0, frames = 0;
+      for (let k = 0; k < n; k++) {
+        m.f[0].x = -400; m.f[1].x = 400; m.f[1].hp = C.MAX_HP; m.f[1].st = 0; m.f[1].hitstun = 0;
+        step(m, [C.IN_LP, 0]);
+        frames = 1;
+        while (m.f[0].st === 9) { step(m, [0, 0]); frames++; }
+        last = C.MAX_HP - m.f[1].hp;
+      }
+      return { last, frames };
+    };
+    const fresh = jab(1), stale = jab(5);
+    expect(fresh.last).toBeGreaterThan(0);
+    expect(stale.last).toBeLessThan(fresh.last * 0.6);
+    expect(stale.frames).toBeGreaterThan(fresh.frames + 6);
+  });
+
+  it('a different move in between, or a pause, makes a move fresh again', () => {
+    const m = createMatch(cfg({ roundTime: 0 }));
+    toFight(m);
+    const press = (b: number) => { step(m, [b, 0]); while (m.f[0].st === 9) step(m, [0, 0]); };
+    press(C.IN_LP); press(C.IN_LP); press(C.IN_LP);
+    expect(m.f[0].lastN).toBe(2);
+    for (let i = 0; i < C.REPEAT_MEMORY + 5; i++) step(m, [0, 0]);
+    press(C.IN_LP);
+    expect(m.f[0].lastN).toBe(0);
+    // three different moves in rotation never go stale
+    for (let i = 0; i < 4; i++) { press(C.IN_LP); press(C.IN_LK); press(C.IN_HP); }
+    expect(m.f[0].lastN).toBe(0);
+    // two alternated moves do
+    for (let i = 0; i < 3; i++) { press(C.IN_LP); press(C.IN_LK); }
+    expect(m.f[0].lastN).toBeGreaterThanOrEqual(2);
+  });
+
+  it('specials have a cooldown', () => {
+    const m = createMatch(cfg({ chars: [0, 1], roundTime: 0 }));
+    toFight(m);
+    m.f[0].x = -2500; m.f[1].x = 2500;
+    const tap = () => { step(m, [C.IN_SP, 0]); step(m, [0, 0]); };
+    tap();
+    expect(m.f[0].st).toBe(9);
+    expect(m.f[0].cd0).toBeGreaterThan(0);
+    while (m.f[0].st === 9) step(m, [0, 0]);
+    tap();
+    expect(m.f[0].st).not.toBe(9); // still cooling down (and its own shots are still flying)
+    for (let i = 0; i < 200; i++) step(m, [0, 0]);
+    tap();
+    expect(m.f[0].st).toBe(9);
+  });
+
   it('every special can be performed without errors', () => {
     for (let c = 0; c < ROSTER.length; c++) {
       for (const dir of [0, C.IN_RIGHT, C.IN_DOWN]) {

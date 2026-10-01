@@ -62,7 +62,7 @@ export function specialFrame(m: MatchState, p: number, mv: MoveDef, fr: number) 
         if (ok) {
           setState(f, St.Throwing); setState(o, St.Thrown);
           f.pendingDamage = s.damage;
-          o.x = f.x + f.facing * 460;
+          o.x = f.x + f.facing * (C.PUSH_HALF * 2 - 80);
           o.facing = (-f.facing) as 1 | -1;
           emit(m, { type: 'grab', p, s: s.vfx });
         }

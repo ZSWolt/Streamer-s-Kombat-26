@@ -104,6 +104,53 @@ export function pokerChip(value = 1): THREE.Group {
   return g;
 }
 
+const AGORA: [string, string, string][] = [['#d9b25a', '#8a6420', '10'], ['#c9c9cf', '#6d6d76', '5'], ['#e3c36a', '#93701f', '50'], ['#c58a4a', '#73451c', '1']];
+/** An agora coin (10 / 5 / 50 / 1, by `kind`): reeded edge, big numeral, "אגורות" underneath. */
+export function agoraCoin(kind = 0): THREE.Group {
+  const k = ((kind % AGORA.length) + AGORA.length) % AGORA.length;
+  const [col, dark, num] = AGORA[k];
+  const g = new THREE.Group();
+  const face = mat('agoraFace' + k, () => new THREE.MeshStandardMaterial({
+    roughness: 0.32, metalness: 0.85, envMapIntensity: 1.3,
+    map: canvasTex(256, 256, (c, w, h) => {
+      const grd = c.createRadialGradient(w * 0.38, h * 0.34, w * 0.05, w / 2, h / 2, w / 2);
+      grd.addColorStop(0, '#fff3c8'); grd.addColorStop(0.35, col); grd.addColorStop(1, dark);
+      c.fillStyle = grd; c.beginPath(); c.arc(w / 2, h / 2, w / 2, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = dark; c.lineWidth = 7;
+      c.beginPath(); c.arc(w / 2, h / 2, w * 0.43, 0, Math.PI * 2); c.stroke();
+      c.fillStyle = dark; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.font = `900 ${num.length > 1 ? 118 : 138}px "Bebas Neue", Impact, sans-serif`;
+      c.fillText(num, w / 2, h * 0.44);
+      c.font = '900 40px "Heebo", Arial, sans-serif';
+      c.fillText(num === '1' ? 'אגורה' : 'אגורות', w / 2, h * 0.74);
+    }),
+  }));
+  const edge = mat('agoraEdge' + k, () => new THREE.MeshStandardMaterial({
+    roughness: 0.4, metalness: 0.85,
+    map: canvasTex(256, 8, (c, w, h) => { for (let i = 0; i < 64; i++) { c.fillStyle = i % 2 ? col : dark; c.fillRect((i * w) / 64, 0, w / 64 + 1, h); } }),
+  }));
+  const m = new THREE.Mesh(geo('agora', () => new THREE.CylinderGeometry(0.5, 0.5, 0.075, 30)), [edge, face, face]);
+  m.rotation.x = Math.PI / 2; // face the camera by default
+  m.castShadow = true;
+  g.add(m);
+  return g;
+}
+
+/** A handful of agorot falling together (the rain special). */
+export function agorotShower(): THREE.Group {
+  const g = new THREE.Group();
+  let sd = 7;
+  const r = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
+  for (let i = 0; i < 11; i++) {
+    const c = agoraCoin(i);
+    c.scale.setScalar(0.2 + r() * 0.12);
+    c.position.set((r() - 0.5) * 0.95, (r() - 0.5) * 0.8, (r() - 0.5) * 0.3);
+    c.userData.spin = [1 + r() * 2, 1 + r() * 2, r() * 6];
+    g.add(c);
+  }
+  return g;
+}
+
 /** INDE GAME merch (headset with blue LEDs, gaming mouse, branded mug). */
 export function indeProduct(kind: number): THREE.Group {
   const g = new THREE.Group();

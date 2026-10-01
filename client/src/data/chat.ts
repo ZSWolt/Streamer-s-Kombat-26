@@ -33,6 +33,7 @@ export let LINES: Record<string, string[]> = {
   counter: ['קאונטר!!!', 'READ'],
   jump: ['למה הוא קופץ'],
   timeOver: ['נגמר הזמן?!'],
+  spam: ['די לספאם 😂', 'אותו מהלך שוב?', 'ספאמר', 'תחליף מהלך אחי', 'כפתור אחד יש לו'],
 };
 
 export const ALERTS = {

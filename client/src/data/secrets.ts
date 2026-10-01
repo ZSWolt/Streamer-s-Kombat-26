@@ -13,6 +13,6 @@ export interface Secret {
 
 export const SECRETS: Secret[] = [
   { id: 'gold-odedsvr', char: 'odedsvr', skin: 1, name: 'עודד הזהוב', title: 'GOLDEN HOST', glow: '#e8b646', winWith: 'odedsvr', against: 'ronengg' },
-  { id: 'neon-inde', char: 'inde', skin: 1, name: 'אינדה ניאון', title: 'NEON LEGEND', glow: '#a347ff', winWith: 'inde', against: 'nave' },
+  { id: 'neon-inde', char: 'inde', skin: 1, name: 'אינדה ניאון', title: 'NEON LEGEND', glow: '#a347ff', winWith: 'inde', against: 'masterohad' },
   { id: 'gold-ronengg', char: 'ronengg', skin: 1, name: 'רונן האלוף', title: 'GOLDEN CHAMP', glow: '#53fc18', winWith: 'ronengg', against: 'odedsvr' },
 ];

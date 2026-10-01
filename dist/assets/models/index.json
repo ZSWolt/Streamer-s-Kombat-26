@@ -1,34 +1,46 @@
 {
  "odedsvr": {
   "file": "odedsvr.glb",
-  "v": "8cc25ba9"
+  "v": "41d97fe3"
  },
  "igz": {
   "file": "igz.glb",
-  "v": "3061d4e7"
+  "v": "1b3c1264"
  },
  "inde": {
   "file": "inde.glb",
-  "v": "b5095dba"
+  "v": "14934e15"
  },
  "philip": {
   "file": "philip.glb",
-  "v": "f4c6e7ea"
+  "v": "f2e9e0aa"
  },
  "ronengg": {
   "file": "ronengg.glb",
-  "v": "73e6bc70"
+  "v": "2f0e81c6"
  },
  "adam": {
   "file": "adam.glb",
-  "v": "ca387755"
+  "v": "d4c026ac"
  },
  "psyqr": {
   "file": "psyqr.glb",
-  "v": "4a718698"
+  "v": "77f7f536"
  },
  "liorslife": {
   "file": "liorslife.glb",
-  "v": "fde131c7"
+  "v": "55e9f30a"
+ },
+ "devidtur": {
+  "file": "devidtur.glb",
+  "v": "5f61ca27"
+ },
+ "maorameleh": {
+  "file": "maorameleh.glb",
+  "v": "2ba8f046"
+ },
+ "shilo": {
+  "file": "shilo.glb",
+  "v": "3d6282e1"
  }
 }

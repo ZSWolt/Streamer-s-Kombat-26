@@ -151,7 +151,7 @@ export class Menus {
     const items: ListItem[] = [
       { he: 'קרב', en: 'ARCADE', desc: 'אתם נגד המחשב. מנצחים, גומרים אותו, בנאליטי.', go: () => app.goSelect('arcade') },
       { he: 'שחקן נגד שחקן', en: 'VERSUS', desc: 'שני שחקנים: מקלדת (WASD / חצים) או שני בקרים.', go: () => app.goSelect('versus') },
-      { he: 'אונליין', en: 'ONLINE', desc: 'לובי עם חברים מכל מקום. מישהו מארח — כולם נכנסים בקישור.', go: () => app.goLobby() },
+      { he: 'אונליין', en: 'ONLINE', desc: 'פותחים חדר, שולחים קישור קצר לחברים, והמארח לוחץ START. בלי התקנות ובלי שרת.', go: () => app.goLobby() },
       { he: 'אימון', en: 'PRACTICE', desc: 'בובת אימון, בלי שעון ובלי נוק-אאוט. תרגלו מהלכים, קומבו ובנאליטי.', go: () => app.goSelect('practice') },
       { he: 'הדגמה', en: 'DEMO', desc: 'המחשב נגד המחשב. שבו, תיהנו.', go: () => app.startDemo() },
       { he: 'הגדרות', en: 'OPTIONS', desc: 'קושי, סבבים, זמן, עוצמות, גרפיקה ומקשים.', go: () => app.goOptions() },
@@ -239,7 +239,7 @@ export class Menus {
       { he: 'רעידת מסך', en: 'SCREEN SHAKE', desc: 'רעידות מצלמה במכות חזקות.', get: () => '', slider: () => s.shake, left: () => { s.shake = Math.max(0, Math.round((s.shake - 0.25) * 4) / 4); }, right: () => { s.shake = Math.min(1, Math.round((s.shake + 0.25) * 4) / 4); } },
       { he: 'מונה FPS', en: 'SHOW FPS', desc: 'מציג פריימים לשנייה.', ...toggle('showFps') },
       { he: 'תצוגת לחיצות', en: 'INPUT DISPLAY', desc: 'מציג את הלחיצות בזמן קרב.', ...toggle('inputDisplay') },
-      { he: 'השהיית קלט', en: 'ONLINE DELAY', desc: 'פריימים של השהייה באונליין (פחות = מהיר, יותר = יציב).', get: () => String(s.inputDelay), left: () => { s.inputDelay = Math.max(0, s.inputDelay - 1); }, right: () => { s.inputDelay = Math.min(6, s.inputDelay + 1); } },
+      { he: 'השהיית קלט', en: 'ONLINE DELAY', desc: 'פריימים של השהייה באונליין. אוטומטי = לפי הפינג ליריב (מומלץ). פחות = מגיב יותר, יותר = חלק יותר בפינג גבוה.', get: () => (s.inputDelay < 0 ? 'אוטומטי' : String(s.inputDelay)), left: () => { s.inputDelay = Math.max(-1, s.inputDelay - 1); }, right: () => { s.inputDelay = Math.min(6, s.inputDelay + 1); } },
       { he: 'מקשים ובקרים', en: 'CONTROLS', desc: 'מקלדת, שחקן 2 ובקר.', get: () => '', go: () => this.app.setScreen(this.controls()) },
       { he: 'איפוס הגדרות', en: 'RESET', desc: 'מחזיר את כל ההגדרות לברירת מחדל. לחצו פעמיים.', get: () => (resetArm ? 'בטוח?' : ''), go: () => { if (resetArm) { Object.assign(s, structuredClone(DEFAULT_SETTINGS)); resetArm = false; app.toast('ההגדרות אופסו'); } else resetArm = true; } },
       { he: 'איפוס התקדמות', en: 'RESET UNLOCKS', desc: 'נועל מחדש את הדמויות הסודיות. לחצו פעמיים.', get: () => { const [g, t] = app.unlockCount(); return unlockArm ? 'בטוח?' : `${g}/${t} נפתחו`; }, go: () => { if (unlockArm) { app.resetUnlocks(); unlockArm = false; app.toast('ההתקדמות אופסה'); } else unlockArm = true; } },
@@ -428,21 +428,21 @@ export class Menus {
     ])]);
   }
 
-  pauseMenu(b: Battle, a: { resume: () => void; restart: () => void; select: () => void; quit: () => void; practice?: { dummy: () => string; cycleDummy: () => void; banality: () => void; resetPos: () => void } }): HTMLElement {
+  pauseMenu(b: Battle, a: { online?: boolean; resume: () => void; restart: () => void; select: () => void; quit: () => void; practice?: { dummy: () => string; cycleDummy: () => void; banality: () => void; resetPos: () => void } }): HTMLElement {
     const m = b.driver.state();
     let who = 0;
     const mlWrap = h('div', { class: 'ml-wrap' }, [this.movelist(m.f[0].char)]);
     const list = h('div', { class: 'kmenu pausemenu' });
     const el = this.mount(h('div', { class: 'pause-overlay fade-in' }, [
-      h('div', { class: 'pause-title' }, [stone('הפסקה')]),
+      h('div', { class: 'pause-title' }, [stone(a.online ? 'תפריט' : 'הפסקה')]),
       mlWrap,
       list,
-      h('div', { class: 'menu-hint' }, [h('b', {}, ['↑↓']), ' בחירה • ', h('b', {}, ['←→']), ' רשימת מהלכים של שחקן 1/2 • ', h('b', {}, ['Esc']), ' המשך']),
+      h('div', { class: 'menu-hint' }, [h('b', {}, ['↑↓']), ' בחירה • ', h('b', {}, ['←→']), ' רשימת מהלכים של שחקן 1/2 • ', h('b', {}, ['Esc / P']), ' המשך', a.online ? ' • הקרב ממשיך ברקע!' : '']),
     ]));
     const isFs = () => !!document.fullscreenElement;
     const items: ListItem[] = [
       { he: 'המשך', en: 'RESUME', go: () => { close(); a.resume(); } },
-      { he: 'התחלה מחדש', en: 'RESTART', go: () => { close(); a.restart(); } },
+      ...(a.online ? [] : [{ he: 'התחלה מחדש', en: 'RESTART', go: () => { close(); a.restart(); } }] as ListItem[]),
       ...(a.practice ? [
         { he: 'בובת אימון', en: 'DUMMY', value: a.practice.dummy, go: a.practice.cycleDummy, cls: 'opt' },
         { he: 'בנאליטי לאימון', en: 'PRACTICE BANALITY', go: () => { close(); a.practice!.banality(); }, cls: 'opt' },
@@ -450,8 +450,9 @@ export class Menus {
       ] as ListItem[] : []),
       { he: isFs() ? 'יציאה ממסך מלא' : 'מסך מלא', en: 'FULLSCREEN', go: () => { if (isFs()) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.().catch(() => {}); }, value: () => (isFs() ? '✓' : '') },
       { he: 'מוזיקה', en: 'MUSIC', value: () => (this.app.settings.music > 0 ? '🔊' : '🔇'), go: () => { const s = this.app.settings; s.music = s.music > 0 ? 0 : 0.7; this.app.applySettings(); } },
-      { he: 'בחירת לוחם', en: 'CHARACTER SELECT', go: () => { close(); a.select(); } },
-      { he: 'תפריט ראשי', en: 'MAIN MENU', go: () => { close(); a.quit(); } },
+      ...(a.online
+        ? [{ he: 'יציאה מהקרב', en: 'LEAVE MATCH', go: () => { close(); a.quit(); } }]
+        : [{ he: 'בחירת לוחם', en: 'CHARACTER SELECT', go: () => { close(); a.select(); } }, { he: 'תפריט ראשי', en: 'MAIN MENU', go: () => { close(); a.quit(); } }]) as ListItem[],
     ];
     const nav = listNav(this.app, list, items, { back: () => { close(); a.resume(); } });
     const offSide = this.app.input.onUi((e) => {

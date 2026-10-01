@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { cardPack, indeProduct, pokerChip, subathonBoard } from './props';
+import { agoraCoin, agorotShower, cardPack, indeProduct, pokerChip, subathonBoard } from './props';
 import { canvasTex } from './textures';
 
 // Emoji billboards give every projectile/prop an instantly readable "chat emote" look.
@@ -9,7 +9,7 @@ export function emojiTex(e: string, size = 256): THREE.Texture {
   let t = emojiCache.get(key);
   if (t) return t;
   if (e === '#vending') {
-    // a snack vending machine (there is no emoji for it)
+    // a vending machine (there is no emoji for it)
     t = canvasTex(size, size, (g, w, h) => {
       const x0 = w * 0.2, y0 = h * 0.04, bw = w * 0.6, bh = h * 0.92;
       g.fillStyle = '#c8101a'; g.fillRect(x0, y0, bw, bh);
@@ -22,7 +22,7 @@ export function emojiTex(e: string, size = 256): THREE.Texture {
       }
       g.fillStyle = '#0b0b0e'; g.fillRect(x0 + bw * 0.1, y0 + bh * 0.8, bw * 0.55, bh * 0.1);
       g.fillStyle = '#fff'; g.font = `900 ${Math.floor(size * 0.085)}px "Bebas Neue", Impact`; g.textAlign = 'center';
-      g.fillText('SNACKS', x0 + bw * 0.5, y0 + bh * 0.08);
+      g.fillText('MAOR', x0 + bw * 0.5, y0 + bh * 0.08);
     });
     emojiCache.set(key, t);
     return t;
@@ -58,13 +58,13 @@ export function textSpriteTex(text: string, color: string, stroke = '#000', font
 }
 
 export const PROJECTILE_EMOJI: Record<string, string> = {
-  microwave: '📦', tornado: '🌪️', headset: '🎧', noobs: '🤓', zzz: '💤', car: '🚗', shockwave: '💥', snacks: '🍟',
+  microwave: '📦', tornado: '🌪️', headset: '🎧', noobs: '🤓', zzz: '💤', car: '🚗', shockwave: '💥', bomb: '💣',
   hypno: '🌀', cards: '🃏', snipe: '🃏', quake: '💥', dog: '🐕', football: '⚽', pctower: '🖥️', cake: '🎂', dice: '🎲',
-  scream: '📢', chocolate: '🍫', money: '💸', popcorn: '🍿', snowball: '❄️', ghost: '👻', milkshake: '🥤', quiz: '❓',
-  concards: '🃏', chips: '🪙', indegear: '🎧', subathon: '⏱️', bottle: '🍾',
+  scream: '📢', concards: '🃏', chips: '🪙', indegear: '🎧', subathon: '⏱️', bottle: '🍾',
+  agorot: '🪙', coinroll: '🪙', coinrain: '🪙',
 };
 /** projectiles drawn as real 3D props (render/props.ts) instead of emoji billboards */
-const PROP_KEYS = new Set(['concards', 'chips', 'indegear', 'subathon']);
+const PROP_KEYS = new Set(['concards', 'chips', 'indegear', 'subathon', 'agorot', 'coinroll', 'coinrain']);
 
 interface Particle {
   obj: THREE.Object3D;
@@ -219,6 +219,11 @@ export class Vfx {
         if (key === 'concards') prop.rotation.set(0, Math.sin(a * 0.09 + ph) * 0.7, flip * (a * 0.13 + ph));
         else if (key === 'chips') prop.rotation.set(Math.sin(a * 0.05 + ph) * 0.5, a * 0.21 + ph, flip * a * 0.04);
         else if (key === 'indegear') prop.rotation.set(a * 0.06 + ph, a * 0.09, flip * a * 0.05);
+        else if (key === 'agorot') prop.rotation.set(a * 0.17 + ph, a * 0.23 + ph * 2, flip * a * 0.05);
+        else if (key === 'coinroll') prop.rotation.set(0, Math.sin(a * 0.05) * 0.25 + 0.35, -p.x / (p.h / 2)); // rolls: turn = distance / radius
+        else if (key === 'coinrain') {
+          for (const c of prop.children) { const sp = c.userData.spin as number[]; c.rotation.set(a * 0.05 * sp[0] + sp[2], a * 0.05 * sp[1], sp[2]); }
+        }
         else prop.rotation.set(Math.sin(a * 0.05) * 0.08, Math.sin(a * 0.04) * 0.18, Math.sin(a * 0.07) * 0.06);
         prop.tick?.(t);
       }
@@ -250,9 +255,13 @@ export class Vfx {
     if (key === 'concards') { prop = cardPack(); prop.scale.setScalar(size * 1.3); }
     else if (key === 'chips') { prop = pokerChip(Number(vfx.split(':')[1] ?? 1 + (id % 6))); prop.scale.setScalar(size * 1.15); }
     else if (key === 'indegear') { prop = indeProduct(id); prop.scale.setScalar(size * 1.45); }
+    else if (key === 'agorot') { prop = agoraCoin(id); prop.scale.setScalar(size * 1.2); }
+    else if (key === 'coinroll') { prop = agoraCoin(0); prop.scale.setScalar(size); }
+    else if (key === 'coinrain') { prop = agorotShower(); prop.scale.setScalar(size * 1.5); }
     else { prop = subathonBoard(); prop.scale.setScalar(size * 1.9); }
-    if (key !== 'subathon') {
-      const halo = this.sprite(this.sparkTex, key === 'indegear' ? '#27a6ff' : key === 'chips' ? '#ffd27a' : '#ff5fd2', size * 1.7);
+    if (key !== 'subathon' && key !== 'coinrain') {
+      const coin = key === 'chips' || key === 'agorot' || key === 'coinroll';
+      const halo = this.sprite(this.sparkTex, key === 'indegear' ? '#27a6ff' : coin ? '#ffd27a' : '#ff5fd2', size * 1.7);
       halo.material.opacity = 0.2;
       halo.position.z = -0.15;
       g.add(halo);
@@ -267,7 +276,7 @@ export class Vfx {
     const g = new THREE.Group();
     const e = PROJECTILE_EMOJI[key] ?? '✨';
     const size = Math.max(w, h) * (kind === 'summon' ? 1.05 : 1.25);
-    const halo = this.sprite(this.sparkTex, key === 'hypno' ? '#b56bff' : key === 'snowball' || key === 'ghost' ? '#9fe3ff' : '#ffd27a', size * 1.5);
+    const halo = this.sprite(this.sparkTex, key === 'hypno' ? '#b56bff' : '#ffd27a', size * 1.5);
     halo.material.opacity = 0.7;
     if (kind !== 'summon' && kind !== 'drop') g.add(halo);
     if (key === 'quake' || key === 'shockwave') {
@@ -275,13 +284,6 @@ export class Vfx {
       g.add(ring);
       g.userData.sprite = ring; g.userData.base = size; g.userData.spin = 0;
       return g;
-    }
-    if (key === 'money' && kind === 'trap') {
-      for (let i = 0; i < 6; i++) {
-        const s = this.sprite(emojiTex('💵'), '#fff', 0.35, false);
-        s.position.set((Math.random() - 0.5) * w, (Math.random() - 0.5) * h, 0);
-        g.add(s);
-      }
     }
     const s = this.sprite(emojiTex(e, 256), '#ffffff', size, false);
     g.add(s);
@@ -293,7 +295,7 @@ export class Vfx {
     g.userData.sprite = s;
     g.userData.halo = kind !== 'summon' ? halo : undefined;
     g.userData.base = size;
-    g.userData.spin = ['microwave', 'headset', 'cards', 'snipe', 'dice', 'chocolate', 'popcorn', 'snowball', 'cake', 'snacks', 'football', 'milkshake'].includes(key) ? 9 : 0;
+    g.userData.spin = ['microwave', 'headset', 'cards', 'snipe', 'dice', 'cake', 'bomb', 'football'].includes(key) ? 9 : 0;
     return g;
   }
 

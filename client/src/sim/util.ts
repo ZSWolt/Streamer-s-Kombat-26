@@ -33,6 +33,7 @@ export function newFighter(char: number, skin: number, side: 0 | 1): FighterStat
     cinematicKind: '', cinematicFrames: 0, damageTaken: 0, roundWins: 0, perfectRun: true, wasBlocking: false,
     history: new Array(INPUT_HISTORY).fill(0), prevInput: 0, pendingDamage: 0,
     buf: 0, bufT: 0, jumpDir: 0, lastHitFrame: -999, idleFrames: 0, crouched: false,
+    cd0: 0, cd1: 0, cd2: 0, lastMove: -1, lastN: 0, prevMove: -1, prevN: 0, repeatT: 0, dashCd: 0,
   };
 }
 

@@ -98,6 +98,9 @@ export class Battle {
   private introShown = [false, false];
   private hitEmoteCd = 0;
   private gate = false;
+  private pauseBtn: HTMLButtonElement | null = null;
+  /** the pause / match menu is up (in an online match the fight goes on behind it) */
+  private menuOpen = false;
   private banter: [string, string] = ['', ''];
   practice: { dummy: () => string; cycle: () => void } | null = null;
 
@@ -125,8 +128,20 @@ export class Battle {
     this.cam.snap();
     music.play(STAGES[cfg.stage]?.music ?? 'kick', 1.2);
     announcer.preload(['round1', 'round2', 'round3', 'final', 'fight', 'ko', 'finish_him', 'finish_her', 'flawless', 'wins', 'banality']);
-    if (opts.mode !== 'online') {
+    if (opts.mode !== 'demo') {
       this.unsubs.push(app.input.onUi((e) => { if (e === 'start' && !this.ended) this.togglePause(); }));
+      // a button for the mouse, and Esc swallowed by the browser (leaving full screen) still opens the menu
+      this.pauseBtn = document.createElement('button');
+      this.pauseBtn.className = 'pause-btn';
+      this.pauseBtn.textContent = '☰';
+      this.pauseBtn.title = 'תפריט (Esc / P)';
+      this.pauseBtn.addEventListener('click', () => { this.pauseBtn?.blur(); if (!this.ended) this.togglePause(); });
+      app.uiRoot.append(this.pauseBtn);
+      const onFs = () => { if (!document.fullscreenElement && !this.ended && !this.menuOpen) this.togglePause(); };
+      const onHide = () => { if (document.hidden && !this.ended && !this.menuOpen && this.driver instanceof LocalDriver) this.togglePause(); };
+      document.addEventListener('fullscreenchange', onFs);
+      document.addEventListener('visibilitychange', onHide);
+      this.unsubs.push(() => { document.removeEventListener('fullscreenchange', onFs); document.removeEventListener('visibilitychange', onHide); });
     }
     if (opts.mode === 'demo') {
       this.unsubs.push(app.input.onUi((e) => { if (e === 'any' || e === 'confirm' || e === 'start') this.quit(); }));
@@ -174,17 +189,20 @@ export class Battle {
   }
 
   togglePause() {
-    const d = this.driver as LocalDriver;
-    if (!(d instanceof LocalDriver)) return;
     if (this.opts.mode === 'demo' || this.gate) return;
-    d.paused = !d.paused;
-    if (d.paused) this.showPause(); else this.hidePause();
-    audio.sfx(d.paused ? 'ui_back' : 'ui_ok');
+    const open = !this.menuOpen;
+    if (open) this.showPause(); else this.hidePause();
+    audio.sfx(open ? 'ui_back' : 'ui_ok');
   }
 
   private showPause() {
+    const d = this.driver;
+    const local = d instanceof LocalDriver;
+    if (local) d.paused = true;
+    this.menuOpen = true;
     this.hud.el.classList.add('paused');
     this.pauseEl = this.app.menus.pauseMenu(this, {
+      online: !local,
       resume: () => this.togglePause(),
       restart: () => { this.hidePause(); this.app.restartBattle(); },
       select: () => { this.hidePause(); this.ended = true; this.app.reselect(); },
@@ -198,12 +216,16 @@ export class Battle {
   }
 
   private hidePause() {
+    this.menuOpen = false;
     this.hud.el.classList.remove('paused');
     this.pauseEl?.remove();
     this.pauseEl = null;
     const d = this.driver as LocalDriver;
     if (d instanceof LocalDriver) d.paused = false;
   }
+
+  /** true while the match menu covers the fight (online: the local player's buttons are ignored) */
+  get inMenu() { return this.menuOpen; }
 
   quit() {
     if (this.ended) return;
@@ -288,6 +310,13 @@ export class Battle {
         break;
       case 'swing':
         A.sfx((e.a ?? 0) >= 70 ? 'swingH' : 'swingL', pan(m.f[e.p!].x), 0.8);
+        break;
+      case 'cooldown':
+        this.hud.cooldownDenied(e.p!, e.a ?? 0);
+        if (this.opts.sources[e.p!]?.kind !== 'cpu') A.sfx('ui_back', pan(m.f[e.p!].x), 0.5);
+        break;
+      case 'stale':
+        if (e.a === 2 && Math.random() < 0.5) this.hud.react('spam');
         break;
       case 'hit': {
         const heavy = e.b ?? 0;
@@ -449,6 +478,7 @@ export class Battle {
 
   dispose() {
     this.unsubs.forEach((u) => u());
+    this.pauseBtn?.remove();
     this.hidePause();
     this.hud.destroy();
     this.r.scene.remove(this.root);

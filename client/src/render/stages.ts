@@ -306,7 +306,7 @@ export function buildStage(idx: number): StageScene {
       }), 34, 12, -7, 6, false);
       group.add(wall);
       const kinds: ('silver' | 'gold' | 'diamond')[] = ['silver', 'gold', 'diamond', 'gold', 'silver'];
-      const names = ['סולטיז', 'INDE GAME', 'STREAM KOMBAT', 'INDE GAME', 'סולטיז'];
+      const names = ['YOUTUBE', 'INDE GAME', 'STREAM KOMBAT', 'INDE GAME', 'YOUTUBE'];
       kinds.forEach((k, i) => {
         const p = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.75), new THREE.MeshStandardMaterial({ map: T.plaque(k, names[i]), metalness: 0.6, roughness: 0.25 }));
         p.position.set(-5.6 + i * 2.8, 3.3, -6.95); group.add(p);

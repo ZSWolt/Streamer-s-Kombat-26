@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ROSTER } from '../data/roster';
+import { staleRecovery } from '../sim/match';
 import { movesFor } from '../sim/moves';
 import type { FighterState } from '../sim/types';
 import { St } from '../sim/types';
@@ -37,6 +38,10 @@ export class ProceduralFighterView implements FighterVisual {
   private override: P.Pose | null = null;
   private flip = 0;
   private charIdx: number;
+  /** the pose set this body uses: the toy's own, or the human one for a real model */
+  lib: P.PoseLib;
+  /** stand for the camera instead of fighting (character select) */
+  showcase = false;
   shadow: THREE.Mesh;
   fx = { tint: new THREE.Color('#000000'), tintAmt: 0, squash: 1, shrink: 1, hidden: false, offsetY: 0, offsetX: 0, spin: 0 };
   private baseScale: number;
@@ -47,7 +52,8 @@ export class ProceduralFighterView implements FighterVisual {
     this.rig = buildRig(ROSTER[charIdx], skin);
     this.root = this.rig.root;
     this.baseScale = this.rig.body.scale.y;
-    this.cur.set(P.GUARD);
+    this.lib = this.rig.skin ? P.HUMAN : P.CLASSIC;
+    this.cur.set(this.lib.GUARD);
     const tex = blobTexture();
     this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.6), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.55 }));
     this.shadow.rotation.x = -Math.PI / 2;
@@ -64,9 +70,18 @@ export class ProceduralFighterView implements FighterVisual {
 
   private target(f: FighterState, t: number, out: P.Pose): string {
     const sf = f.stFrame;
+    const L = this.lib;
     switch (f.st) {
       case St.Idle: case St.Intro: {
-        out.set(P.GUARD);
+        if (this.showcase) {
+          out.set(L.STAND);
+          out[P.J.chest * 3] += Math.sin(t * 1.6) * 0.03;
+          out[P.J.head * 3 + 1] += Math.sin(t * 0.7) * 0.12;
+          out[P.J.armL * 3 + 2] += Math.sin(t * 1.6) * 0.015;
+          out[P.J.armR * 3 + 2] -= Math.sin(t * 1.6) * 0.015;
+          return 'stand';
+        }
+        out.set(L.GUARD);
         const b = Math.sin(t * 4.2);
         out[P.EX_HIPY] += b * 0.018;
         out[P.J.chest * 3] += Math.sin(t * 2.1) * 0.035;
@@ -74,13 +89,13 @@ export class ProceduralFighterView implements FighterVisual {
         out[P.J.armR * 3] -= b * 0.04;
         out[P.J.head * 3 + 1] += Math.sin(t * 0.9) * 0.08;
         if (f.st === St.Intro) {
-          P.lerpPose(P.GUARD, P.TAUNT, 0.5 + 0.5 * Math.sin(t * 3), out);
+          P.lerpPose(L.GUARD, L.TAUNT, 0.5 + 0.5 * Math.sin(t * 3), out);
           return 'intro';
         }
         return 'idle';
       }
       case St.WalkF: case St.WalkB: {
-        out.set(P.GUARD);
+        out.set(L.GUARD);
         const dir = f.st === St.WalkF ? 1 : -1;
         const ph = t * 8.5 * dir;
         const s = Math.sin(ph);
@@ -94,7 +109,7 @@ export class ProceduralFighterView implements FighterVisual {
         return 'walk';
       }
       case St.Run: {
-        out.set(P.GUARD);
+        out.set(L.GUARD);
         const ph = t * 15;
         const sn = Math.sin(ph);
         out[P.J.spine * 3] += 0.32;
@@ -111,37 +126,36 @@ export class ProceduralFighterView implements FighterVisual {
         return 'run';
       }
       case St.DashF: {
-        const k = Math.min(1, sf / 4);
-        P.lerpPose(P.GUARD, P.makePose({ spine: [0.45, 0.1, 0], head: [-0.2, 0, 0], thighL: [-1.1, 0, 0.1], shinL: [0.6, 0, 0], thighR: [0.9, 0, -0.1], shinR: [0.9, 0, 0], hy: -0.14 }, P.GUARD), k, out);
+        P.lerpPose(L.GUARD, L.DASH_F, Math.min(1, sf / 4), out);
         return 'dashF';
       }
       case St.DashB: {
-        P.lerpPose(P.GUARD, P.makePose({ spine: [-0.25, 0, 0], thighL: [-0.5, 0, 0.1], shinL: [1.2, 0, 0], thighR: [-0.3, 0, -0.1], shinR: [1.1, 0, 0], hy: 0.05 }, P.GUARD), Math.min(1, sf / 3), out);
+        P.lerpPose(L.GUARD, L.DASH_B, Math.min(1, sf / 3), out);
         return 'dashB';
       }
-      case St.Crouch: out.set(P.CROUCH); out[P.EX_HIPY] += Math.sin(t * 3) * 0.01; return 'crouch';
-      case St.JumpSquat: P.lerpPose(P.GUARD, P.CROUCH, 0.5, out); return 'jsquat';
+      case St.Crouch: out.set(L.CROUCH); out[P.EX_HIPY] += Math.sin(t * 3) * 0.01; return 'crouch';
+      case St.JumpSquat: P.lerpPose(L.GUARD, L.CROUCH, 0.5, out); return 'jsquat';
       case St.Air: {
-        out.set(P.JUMP);
+        out.set(L.JUMP);
         if (f.jumpDir !== 0) {
           const prog = THREE.MathUtils.clamp(sf / 42, 0, 1);
           out[P.J.hips * 3] += f.jumpDir * P.ease.inOut(prog) * Math.PI * 2;
         } else {
-          P.lerpPose(P.JUMP, P.GUARD, THREE.MathUtils.clamp(-f.vy / 120, 0, 0.6), out);
+          P.lerpPose(L.JUMP, L.GUARD, THREE.MathUtils.clamp(-f.vy / 120, 0, 0.6), out);
         }
         return 'air';
       }
-      case St.Land: P.lerpPose(P.CROUCH, P.GUARD, Math.min(1, sf / 6), out); return 'land';
-      case St.BlockStand: out.set(P.BLOCK); if (f.blockstun > 0) out[P.J.spine * 3] -= 0.08; return 'block';
-      case St.BlockCrouch: out.set(P.BLOCK_CROUCH); return 'blockc';
+      case St.Land: P.lerpPose(L.CROUCH, L.GUARD, Math.min(1, sf / 6), out); return 'land';
+      case St.BlockStand: out.set(L.BLOCK); if (f.blockstun > 0) out[P.J.spine * 3] -= 0.08; return 'block';
+      case St.BlockCrouch: out.set(L.BLOCK_CROUCH); return 'blockc';
       case St.Hitstun: {
-        const base = f.crouched ? P.BLOCK_CROUCH : this.hitHigh ? P.HIT_HIGH : P.HIT_MID;
+        const base = f.crouched ? L.BLOCK_CROUCH : this.hitHigh ? L.HIT_HIGH : L.HIT_MID;
         const k = Math.min(1, f.hitstun / 10);
-        P.lerpPose(P.GUARD, base, k, out);
+        P.lerpPose(L.GUARD, base, k, out);
         return 'hit';
       }
       case St.Stunned: case St.Dizzy: {
-        out.set(P.DIZZY);
+        out.set(L.DIZZY);
         out[P.J.spine * 3 + 2] += Math.sin(t * 3.2) * 0.14;
         out[P.J.head * 3 + 2] += Math.sin(t * 3.2 + 1) * 0.22;
         out[P.J.head * 3] += Math.cos(t * 3.2) * 0.12;
@@ -149,54 +163,61 @@ export class ProceduralFighterView implements FighterVisual {
         return 'dizzy';
       }
       case St.AirHit: {
-        out.set(P.AIR_HIT);
+        out.set(L.AIR_HIT);
         out[P.J.hips * 3] -= Math.min(0.9, sf * 0.035);
         return 'airhit';
       }
       case St.Knockdown: case St.Ko:
-        out.set(P.LYING);
+        out.set(L.LYING);
         if (f.st === St.Ko) out[P.EX_EYES] = 0;
         return 'lying';
-      case St.Getup: P.lerpPose(P.GETUP, P.GUARD, P.ease.inOut(Math.min(1, sf / 20)), out); return 'getup';
+      case St.Getup: P.lerpPose(L.GETUP, L.GUARD, P.ease.inOut(Math.min(1, sf / 20)), out); return 'getup';
       case St.Throwing: {
-        const a = P.ATTACKS.throw;
-        if (sf < 8) P.lerpPose(P.GUARD, a.wind, P.ease.out(sf / 8), out);
+        const a = L.ATTACKS.throw;
+        if (sf < 8) P.lerpPose(L.GUARD, a.wind, P.ease.out(sf / 8), out);
         else if (sf < 26) P.lerpPose(a.wind, a.hit, P.ease.inOut((sf - 8) / 18), out);
-        else P.lerpPose(a.hit, P.GUARD, (sf - 26) / 8, out);
+        else P.lerpPose(a.hit, L.GUARD, (sf - 26) / 8, out);
         return 'throwing';
       }
       case St.Thrown: {
-        P.lerpPose(P.HIT_MID, P.AIR_HIT, Math.min(1, sf / 20), out);
+        P.lerpPose(L.HIT_MID, L.AIR_HIT, Math.min(1, sf / 20), out);
         return 'thrown';
       }
       case St.Win: {
+        if (this.rig.skin) {
+          // fists up, pumping
+          P.lerpPose(L.WIN, L.WIN2, P.ease.inOut(0.5 - 0.5 * Math.cos(t * 4.5)), out);
+          out[P.EX_HIPY] += Math.abs(Math.sin(t * 2.25)) * 0.015;
+          return 'win';
+        }
         const alt = Math.floor(t * 1.2) % 2 === 0;
-        P.lerpPose(alt ? P.WIN : P.WIN2, alt ? P.WIN2 : P.WIN, 0.5 + 0.5 * Math.sin(t * 5) * 0.2, out);
+        P.lerpPose(alt ? L.WIN : L.WIN2, alt ? L.WIN2 : L.WIN, 0.5 + 0.5 * Math.sin(t * 5) * 0.2, out);
         out[P.EX_HIPY] += Math.abs(Math.sin(t * 5)) * 0.03;
         return 'win';
       }
-      case St.Taunt: out.set(P.TAUNT); return 'taunt';
+      case St.Taunt: out.set(L.TAUNT); return 'taunt';
       case St.Cinematic: {
-        out.set(P.GUARD);
+        out.set(L.GUARD);
         return 'cine';
       }
       case St.Attack: return this.attackPose(f, out);
     }
-    out.set(P.GUARD);
+    out.set(L.GUARD);
     return 'idle';
   }
 
   private attackPose(f: FighterState, out: P.Pose): string {
     const mv = movesFor(f.char)[f.move];
-    if (!mv) { out.set(P.GUARD); return 'idle'; }
+    const L = this.lib;
+    if (!mv) { out.set(L.GUARD); return 'idle'; }
     let animKey = mv.anim;
     if (mv.special && animKey === 'throw') animKey = 'toss';
-    const a = P.ATTACKS[animKey] ?? P.ATTACKS.jab;
-    const base = a.air ? P.JUMP : a.crouch ? P.CROUCH : P.GUARD;
+    const a = L.ATTACKS[animKey] ?? L.ATTACKS.jab;
+    const base = a.air ? L.JUMP : a.crouch ? L.CROUCH : L.GUARD;
     const fr = f.moveFrame;
     const s = Math.max(1, mv.startup);
     const act = mv.active;
-    const rec = mv.recovery;
+    const rec = mv.recovery + staleRecovery(f, mv);
     const windEnd = Math.max(1, s * 0.62);
     if (fr < windEnd) P.lerpPose(base, a.wind, P.ease.out(fr / windEnd), out);
     else if (fr < s) P.lerpPose(a.wind, a.hit, P.ease.back(Math.min(1, (fr - windEnd) / (s - windEnd))), out);
@@ -300,7 +321,6 @@ export class ProceduralFighterView implements FighterVisual {
     if (skin) {
       // feet carry the body unless it is airborne or rolled over (lying, slides, rolls)
       skin.feetOnGround = f.y <= 0 && Math.abs(tmp2[P.J.hips * 3]) < 0.7;
-      skin.absolute = tmp2[P.EX_ABS];
       skin.update(dt);
     }
   }

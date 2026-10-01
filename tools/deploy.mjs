@@ -1,18 +1,32 @@
-// Build the game and publish it to GitHub Pages (https://zswolt.github.io/Streamer-s-Kombat-26/).
+// Build the game and publish it to GitHub Pages.
 //
 //   node tools/deploy.mjs ["commit message"] [--message-file <path>] [--no-test] [--no-push]
 //
 // This folder is not a git repository. The published repo is a separate clone (GitHub Desktop):
 // sources and the fresh dist/ are copied into it, the root index.html (which points Pages at dist/) is
 // regenerated, and only the copied paths are committed — other work in the clone is left alone.
+//
+// The site lives at https://zswolt.github.io/Streamer-s-Kombat-26/ and, once the domain's DNS points at GitHub
+// Pages, at https://streamerskombatil.online/. The CNAME file that tells Pages to use the domain is only written
+// when that DNS is really in place: Pages redirects the github.io address to the custom domain the moment the
+// file exists, so adding it early would take the site down for everyone.
 import { spawnSync } from 'node:child_process';
+import dns from 'node:dns/promises';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const CLONE = process.env.SK_CLONE ?? path.join(os.homedir(), 'Documents', 'GitHub', 'Streamer-s-Kombat-26');
-const SITE = 'https://zswolt.github.io/Streamer-s-Kombat-26/';
+const DOMAIN = 'streamerskombatil.online';
+const PAGES_IPS = ['185.199.108.153', '185.199.109.153', '185.199.110.153', '185.199.111.153'];
+let domainReady = false;
+try {
+  const ips = await new dns.Resolver().resolve4(DOMAIN).catch(() => dns.resolve4(DOMAIN));
+  domainReady = ips.length > 0 && ips.every((ip) => PAGES_IPS.includes(ip));
+  if (!domainReady) console.log(`! ${DOMAIN} resolves to ${ips.join(', ')} — not GitHub Pages yet, publishing on github.io only`);
+} catch { console.log(`! ${DOMAIN} does not resolve yet — publishing on github.io only`); }
+const SITE = domainReady ? `https://${DOMAIN}/` : 'https://zswolt.github.io/Streamer-s-Kombat-26/';
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
 const mfIdx = args.indexOf('--message-file');
@@ -52,12 +66,25 @@ function copy(rel) {
   files.push(rel.split(path.sep).join('/'));
 }
 console.log('▸ sync →', CLONE);
-for (const d of ['client', 'server', 'tests', 'docs']) copy(d);
-for (const f of ['package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', 'START-SERVER.bat']) copy(f);
+for (const d of ['client', 'tests', 'docs']) copy(d);
+for (const f of ['package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts']) copy(f);
 for (const f of fs.readdirSync(path.join(ROOT, 'tools'))) if (/\.(py|mjs)$/.test(f)) copy(path.join('tools', f));
-for (const f of fs.readdirSync(path.join(ROOT, 'tools', 'models'))) if (f.endsWith('.py')) copy(path.join('tools', 'models', f));
+for (const f of fs.readdirSync(path.join(ROOT, 'tools', 'models'))) if (/\.(py|sh)$/.test(f)) copy(path.join('tools', 'models', f));
 copy(path.join('tools', 'models', 'overrides'));
 for (const f of fs.readdirSync(path.join(ROOT, 'tools', 'voices'))) if (/\.(md|txt)$/.test(f)) copy(path.join('tools', 'voices', f));
+
+// files that were deleted here are deleted there too (only in the places this script owns)
+const OWNED = [/^client\//, /^server\//, /^tests\//, /^docs\//, /^tools\/[^/]+\.(py|mjs)$/, /^tools\/models\/[^/]+\.(py|sh)$/, /^tools\/models\/overrides\//, /^START-SERVER\.bat$/];
+const have = new Set(files);
+const gone = spawnSync('git', ['-C', CLONE, '-c', 'core.quotepath=false', 'ls-files'], { encoding: 'utf8', maxBuffer: 1 << 26 }).stdout.split('\n')
+  .filter((f) => f && OWNED.some((r) => r.test(f)) && !have.has(f) && !fs.existsSync(path.join(ROOT, f)));
+if (gone.length) {
+  console.log('▸ removing', gone.length, 'deleted file(s):', gone.slice(0, 8).join(', ') + (gone.length > 8 ? ' …' : ''));
+  const rl = path.join(os.tmpdir(), `sk-deploy-rm-${process.pid}.txt`);
+  fs.writeFileSync(rl, gone.join('\n'));
+  run('git', ['-C', CLONE, 'rm', '-q', '--pathspec-from-file=' + rl]);
+  fs.rmSync(rl);
+}
 
 // dist is replaced wholesale so stale hashed bundles do not pile up (dist/tools in the clone is not ours)
 const distDst = path.join(CLONE, 'dist');
@@ -67,7 +94,11 @@ fs.cpSync(path.join(ROOT, 'dist'), distDst, { recursive: true });
 // Pages serves the branch root: its index.html is dist/index.html with a <base> pointing into dist/
 const html = fs.readFileSync(path.join(ROOT, 'dist', 'index.html'), 'utf8');
 if (!/<meta name="viewport"[^>]*>/.test(html)) { console.error('dist/index.html has no viewport meta to anchor the <base> tag'); process.exit(1); }
-fs.writeFileSync(path.join(CLONE, 'index.html'), html.replace(/(<meta name="viewport"[^>]*>)/, '$1\n    <base href="/Streamer-s-Kombat-26/dist/" />'));
+// (relative, so the same page works under /Streamer-s-Kombat-26/ on github.io and at the root of the custom domain)
+fs.writeFileSync(path.join(CLONE, 'index.html'), html.replace(/(<meta name="viewport"[^>]*>)/, '$1\n    <base href="dist/" />'));
+const cname = path.join(CLONE, 'CNAME');
+if (domainReady) fs.writeFileSync(cname, DOMAIN + '\n');
+else if (fs.existsSync(cname)) { console.error(`✗ the clone has a CNAME file but ${DOMAIN} does not point at GitHub Pages; fix the DNS (or remove CNAME) first`); process.exit(1); }
 
 // ---------------------------------------------------------------- commit + push
 const list = path.join(os.tmpdir(), `sk-deploy-${process.pid}.txt`);
@@ -75,6 +106,7 @@ fs.writeFileSync(list, files.join('\n'));
 git(['add', '--pathspec-from-file=' + list]);
 fs.rmSync(list);
 git(['add', '-A', '--', 'dist', 'index.html', ':!dist/tools']);
+if (domainReady) git(['add', '--', 'CNAME']);
 if (spawnSync('git', ['-C', CLONE, 'diff', '--cached', '--quiet']).status === 0) { console.log('✓ nothing changed — the site is already up to date'); process.exit(0); }
 const mf = path.join(os.tmpdir(), `sk-deploy-msg-${process.pid}.txt`);
 fs.writeFileSync(mf, message);
@@ -91,7 +123,7 @@ console.log('▸ waiting for', SITE, 'to serve', bundle);
 for (let i = 0; i < 40; i++) {
   await new Promise((r) => setTimeout(r, 6000));
   try {
-    const live = await (await fetch(SITE + '?t=' + Date.now(), { cache: 'no-store' })).text();
+    const live = await (await fetch(SITE + '?t=' + Date.now(), { cache: 'no-store', redirect: 'follow' })).text();
     if (bundle && live.includes(bundle)) { console.log(`✓ live after ~${(i + 1) * 6}s: ${SITE}`); process.exit(0); }
   } catch { /* keep polling */ }
 }

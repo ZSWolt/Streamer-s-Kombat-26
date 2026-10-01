@@ -1,5 +1,5 @@
 import { ROSTER } from '../data/roster';
-import type { Box, MoveDef, SpecialDef } from './types';
+import type { Box, MoveDef, SpecialDef, SpecialSpec } from './types';
 
 export const MV = {
   LP: 0, HP: 1, LK: 2, HK: 3,
@@ -35,6 +35,12 @@ const NORMALS: NormalSpec[] = [
   { key: 'THROW', anim: 'throw', s: 5, a: 2, r: 28, dmg: 120, level: 'unblockable', box: b(0, 400, 760, 1000), hs: 0, bs: 0, push: 0, stop: 0, rank: 9, cancel: 'none' },
 ];
 
+/** Frames from the start of a special until it is ready again, by what it does. */
+export const COOLDOWN: Record<SpecialSpec['kind'], number> = {
+  projectile: 85, beam: 110, rush: 80, uppercut: 90, slam: 90, grab: 110, counter: 130, reflect: 130,
+  teleport: 150, swap: 200, drop: 190, summon: 210, trap: 210, heal: 300,
+};
+
 function specialMove(id: number, def: SpecialDef): MoveDef {
   const s = def.spec;
   let active = s.active ?? 2;
@@ -52,6 +58,7 @@ function specialMove(id: number, def: SpecialDef): MoveDef {
     id, key: 'SP_' + def.input, anim: def.anim, startup: s.startup, active, recovery: s.recovery,
     damage: s.damage, level, hitbox: box, hitstun: s.hitstun ?? 24, blockstun: 16, pushback: 60, hitstop: 11,
     knockdown: s.knockdown, launch: s.launch, cancel: 'none', chainRank: 9, invuln: s.invuln, special: def,
+    cooldown: COOLDOWN[s.kind],
   };
 }
 

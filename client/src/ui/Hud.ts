@@ -2,6 +2,8 @@ import { ALERTS, BADGE_ICON, EMOTES, LINES, USERS, USER_COLORS, fill, pick } fro
 import { FLAVOR } from '../data/flavor';
 import { ROSTER } from '../data/roster';
 import * as C from '../sim/constants';
+import { specialWait } from '../sim/match';
+import { MV, movesFor } from '../sim/moves';
 import type { MatchState } from '../sim/types';
 import { clear, h } from './dom';
 import { portraitUrl } from './portraits';
@@ -10,7 +12,7 @@ import { stone } from './stone';
 
 export class Hud {
   el: HTMLElement;
-  private bars: { fill: HTMLElement; trail: HTMLElement; trailV: number; wins: HTMLElement; meter: HTMLElement; meterLbl: HTMLElement; combo: HTMLElement; callout: HTMLElement }[] = [];
+  private bars: { fill: HTMLElement; trail: HTMLElement; trailV: number; wins: HTMLElement; meter: HTMLElement; meterLbl: HTMLElement; combo: HTMLElement; callout: HTMLElement; cds: { el: HTMLElement; fill: HTMLElement; lbl: HTMLElement; k: number }[]; stale: HTMLElement; staleN: number }[] = [];
   private timer: HTMLElement;
   private big: HTMLElement;
   private chat: HTMLElement;
@@ -54,12 +56,21 @@ export class Hud {
       const meterBar = h('div', { class: 'hud-meter-bar' });
       const meterFill = h('div', { class: 'hud-meter-fill' });
       meterBar.append(meterFill);
-      meterWrap.append(meterLbl, meterBar);
+      // special moves: each chip empties when its move is used and refills as the cooldown runs out
+      const cdRow = h('div', { class: 'hud-cds' });
+      const cds = [0, 1, 2].map(() => {
+        const fillEl = h('i'), lbl = h('b');
+        const el = h('div', { class: 'hud-cd' }, [fillEl, lbl]);
+        cdRow.append(el);
+        return { el, fill: fillEl, lbl, k: -1 };
+      });
+      const stale = h('div', { class: 'hud-stale' });
+      meterWrap.append(stale, cdRow, meterLbl, meterBar);
       this.el.append(meterWrap);
       const combo = h('div', { class: `hud-combo p${p + 1}` });
       const callout = h('div', { class: `pmove p${p + 1}` });
       this.el.append(combo, callout);
-      this.bars.push({ fill: fillEl, trail, trailV: 1, wins, meter: meterFill, meterLbl, combo, callout });
+      this.bars.push({ fill: fillEl, trail, trailV: 1, wins, meter: meterFill, meterLbl, combo, callout, cds, stale, staleN: -1 });
       const inp = h('div', { class: `hud-input p${p + 1}` });
       this.inputDisp.push(inp);
       if (cfg.showInput) this.el.append(inp);
@@ -94,6 +105,7 @@ export class Hud {
       clear(name);
       name.append(stone(f.he), h('span', { class: 'en' }, [f.title]));
       this.names[p] = f.he;
+      f.specials.forEach((sp, i) => { this.bars[p].cds[i].lbl.textContent = sp.name; });
     }
     this.renderWins(m);
   }
@@ -120,6 +132,19 @@ export class Hud {
       b.meter.style.transform = `scaleX(${mv})`;
       b.meter.parentElement!.parentElement!.classList.toggle('full', mv >= 1);
       b.meterLbl.textContent = mv >= 1 ? `HYPE! ${hypeInput()}` : `HYPE TRAIN LV.${Math.floor(mv * 4) + 1}`;
+      const moves = movesFor(f.char);
+      for (let i = 0; i < 3; i++) {
+        const wait = specialWait(m, p, i);
+        const k = Math.min(1, wait / (moves[MV.SP0 + i].cooldown ?? 90));
+        const c = b.cds[i];
+        if (k !== c.k) { c.k = k; c.fill.style.transform = `scaleX(${k})`; c.el.classList.toggle('wait', wait > 0); }
+      }
+      const sn = f.repeatT > 0 && f.lastN >= 2 ? f.lastN : 0;
+      if (sn !== b.staleN) {
+        b.staleN = sn;
+        b.stale.textContent = sn ? `ספאם ×${sn + 1} · המהלך נחלש` : '';
+        b.stale.classList.toggle('show', sn > 0);
+      }
       if (this.comboTimers[p] > 0 && (this.comboTimers[p] -= dt) <= 0) b.combo.classList.remove('show');
       if (this.calloutTimers[p] > 0 && (this.calloutTimers[p] -= dt) <= 0) b.callout.classList.remove('show');
       if (inputs && this.cfg.showInput) this.renderInput(p, inputs[p], m.f[p].facing);
@@ -216,6 +241,15 @@ export class Hud {
     void b.callout.offsetWidth;
     b.callout.classList.add('show');
     this.calloutTimers[p] = hype ? 2.4 : 1.7;
+  }
+
+  /** A special was asked for while still cooling down: shake its chip. */
+  cooldownDenied(p: number, slot: number) {
+    const el = this.bars[p]?.cds[slot]?.el;
+    if (!el) return;
+    el.classList.remove('deny');
+    void el.offsetWidth;
+    el.classList.add('deny');
   }
 
   calloutHit(p: number) {
