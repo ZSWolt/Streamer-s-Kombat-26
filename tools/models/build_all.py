@@ -64,6 +64,9 @@ def main():
         if not name.lower().endswith('.glb'):
             continue
         fid = fighter_id(os.path.splitext(name)[0])
+        if fid not in roster_ids():  # props such as "Concards Pack.glb" live in the same folder
+            print(f'-- skipped {name}: no fighter with id "{fid}" in the roster', flush=True)
+            continue
         if only and fid not in only:
             continue
         out = os.path.join(OUT, fid + '.glb')
