@@ -707,7 +707,16 @@ def leg_is_straight(s):
     return norm(d)[1] > 0.97 and dev < 0.02 * H
 
 
-STANDING = OVR['standing'] if 'standing' in OVR else all(leg_is_straight(s) for s in 'LR')
+def arms_out():
+    """A sculpt made with its arms held out to the sides is a standing one, whatever its trousers hide."""
+    a = [p.s for p in P if p.cls == 'arm']
+    if not a:
+        return False
+    a = np.concatenate(a)
+    return float(np.abs(a[:, 0] - tp[:, 0].mean()).max()) > 0.33 * H and float(a[:, 1].mean()) > 0.62 * H
+
+
+STANDING = OVR['standing'] if 'standing' in OVR else (all(leg_is_straight(s) for s in 'LR') or arms_out())
 if STANDING:
     mx = float((J['footL'][0] + J['footR'][0]) / 2)
     # The fork of the legs. Thighs that touch share the centre line well below it, but only at mid depth; from
@@ -728,9 +737,13 @@ if STANDING:
     for s in 'LR':
         up = [r[1] for r in leg_line[s] if crotch - 0.1 * H < r[1][1] < crotch - 0.02 * H]
         side[s] = np.mean(up, axis=0) if up else J['foot' + s]
-    half = float(np.clip((side['L'][0] - side['R'][0]) / 2, 0.06 * H, 0.1 * H))
-    # the hip joints sit a little above the fork of the legs, over the middle of each thigh
-    pelvis = np.array([mx, crotch + OVR.get('hipRise', 0.045) * H, (side['L'][2] + side['R'][2]) / 2])
+    # The hip joints are where a body has them: a little over half its height up, a hand's breadth either side of
+    # the middle. The fork of the trousers says little about it (a low crotch is cloth, not leg): hips put just
+    # above a baggy fork made the thighs half their length, the knees bend in the shins, and the seat swing out
+    # sideways with every step.
+    half = float(np.clip((side['L'][0] - side['R'][0]) / 2, 0.05 * H, 0.062 * H))
+    hip_y = max(crotch + OVR.get('hipRise', 0.045) * H, OVR.get('hipHeight', 0.505) * H)
+    pelvis = np.array([mx, hip_y, (side['L'][2] + side['R'][2]) / 2])
     pelvis_up, lat, HIP_W = np.array([0, 1.0, 0]), np.array([1.0, 0, 0]), 2 * half
     J['thighL'], J['thighR'] = pelvis + lat * half, pelvis - lat * half
     log(f'standing model: neck was {(J["neck"][0] - mx) / H:+.3f} off the centre line')
@@ -742,12 +755,12 @@ for _ in range(1):
         rows = leg_line[s]
         a = J['foot' + s]
         ab = J['thigh' + s] - a
-        if STANDING:  # a straight leg: thigh and shin are about the same length
-            t_k = 0.5
-            cuts = [c for c in leg_cuts[s] if 0.45 < ((c - a) @ ab) / (ab @ ab) < 0.56]
-            how[s] = 'standing leg, half way up'
-            if cuts:  # trousers cut into parts at the knee
-                t_k = float(((min(cuts, key=lambda c: abs(((c - a) @ ab) / (ab @ ab) - 0.5)) - a) @ ab) / (ab @ ab))
+        if STANDING:  # a straight leg: the knee is where a body's knee is, 0.285 of its height up
+            t_k = float(np.clip((OVR.get('kneeHeight', 0.285) * H - a[1]) / max(ab[1], 1e-6), 0.42, 0.6))
+            cuts = [c for c in leg_cuts[s] if abs(((c - a) @ ab) / (ab @ ab) - t_k) < 0.045]
+            how[s] = 'standing leg, by proportion'
+            if cuts:  # trousers cut into parts right at the knee
+                t_k = float(((min(cuts, key=lambda c: abs(((c - a) @ ab) / (ab @ ab) - t_k)) - a) @ ab) / (ab @ ab))
                 how[s] = 'standing leg, at the part cut'
             J['shin' + s] = a + ab * t_k
             bend[s], out_dir[s] = 0.0, np.array([0, 0, 1.0])
@@ -872,6 +885,13 @@ for s in 'LR':
         if abs(up_ax[0]) < 0.3:
             up_ax = ax
         S = first + up_ax * ((J['neck'][0] + sg * OVR.get('shoulderX', 0.108) * H - first[0]) / up_ax[0])  # the joint, inside the shoulder
+        # A wide sleeve hangs below the arm it is on, so the middle of the sleeve is lower than the joint. The
+        # joint lies a fixed depth under the top of the shoulder; turning about the sleeve's middle instead, an
+        # arm brought down carries the top of the sleeve out sideways into a ball the size of the head.
+        over = arm.pos[np.abs(arm.pos[:, 0] - S[0]) < 0.02 * H]
+        if len(over) >= 8:
+            y_top = float(np.percentile(over[:, 1], 97))
+            S = S + np.array([0.0, float(np.clip(y_top - OVR.get('shoulderDepth', 0.045) * H - S[1], 0.0, 0.035 * H)), 0.0])
         T = S + ax * float(((arm.pos - S) @ ax).max())  # the fingertips
         # the arm's centre line from the joint to the fingertips, in order along the arm
         span = float((T - S) @ ax)
@@ -912,6 +932,33 @@ else:
     for s in 'LR':
         J['arm' + s] = J['neck'] + norm(J['arm' + s] - J['neck']) * (0.5 * reach[s] + 0.5 * both)
 log(f'shoulders: {np.linalg.norm(J["armL"] - J["neck"]) / H:.3f} / {np.linalg.norm(J["armR"] - J["neck"]) / H:.3f} from the neck')
+if STANDING and all(arm_straight.values()) and OVR.get('shoulderDrop', 0.025) > 0:
+    # Arms held straight out lift the shoulders: the line from the neck to the arm is level, up by the chin. With
+    # the arms down a body's shoulders slope. The sculpt itself is reshaped: the arms come down a little, and the
+    # top of the trunk slopes down to them from the sides of the neck.
+    drop_ = OVR.get('shoulderDrop', 0.025) * H
+    cx_, sx_, sy_ = float(J['neck'][0]), float(abs(J['armL'][0] - J['neck'][0])), float(J['armL'][1])
+    ny_ = float(J['neck'][1])
+
+    def slope(pts, whole):
+        g_ = smooth(0.04 * H, sx_, np.abs(pts[:, 0] - cx_))
+        # (only the trunk below the neck: skin that runs on up the neck to the face stays where the head is)
+        f_ = 1.0 if whole else smooth(sy_ - 0.16 * H, sy_ - 0.04 * H, pts[:, 1]) * (1 - smooth(ny_, ny_ + 0.04 * H, pts[:, 1]))
+        out_ = np.array(pts, dtype=np.float64)
+        out_[:, 1] -= drop_ * g_ * f_
+        return out_
+
+    for p in P:
+        if p.cls in ('head', 'headacc', 'leg', 'shoe'):
+            continue
+        set_verts_gl(p.o, slope(verts_gl(p.o), p.cls == 'arm'))
+        p.s = slope(p.s, p.cls == 'arm')
+    for s in 'LR':
+        for b in ('arm', 'fore', 'hand', 'tip'):
+            J[b + s] = J[b + s] - np.array([0.0, drop_, 0.0])
+        hole[s]['c'] = hole[s]['c'] - np.array([0.0, drop_, 0.0])
+        arm_geo[s][0].pos = slope(arm_geo[s][0].pos, True)
+    log(f'shoulders sloped: arms {drop_ / H:.3f}H lower, joints at {J["armL"][1] / H:.3f}H')
 
 # ---- trunk: pelvis -> neck, bowed the way the back is (a rounded back straightens when the body stands up)
 J['hips'] = pelvis + pelvis_up * 0.015 * H
@@ -990,7 +1037,7 @@ def drop_shoulders(NP):
     if STANDING:
         for s in 'LR':
             for b in ('arm', 'fore', 'hand'):
-                NP[b + s] = NP[b + s] - np.array([0.0, OVR.get('shoulderDrop', 0.0) * H, 0.0])
+                NP[b + s] = NP[b + s] - np.array([0.0, OVR.get('armDrop', 0.0) * H, 0.0])
 
 
 star = frames_of(J, rot_y(OVR.get('headYaw', 0)) @ rot_x(OVR.get('headPitch', 0)), pelvis_up)
@@ -1103,9 +1150,7 @@ def capsules(JJ, top, radii, holes, up):
         'pelvis': [bar, crest, (JJ['hips'], JJ['hips'] + up * 0.3 * H, rt)],  # trousers: all of the waistband
         'spine': [(JJ['spine'], JJ['chest'], radii['trunk'])],
         'chest': [(JJ['chest'], JJ['neck'], radii['trunk'])],
-        'head': [(JJ['head'], top, 0.1 * H)],
-        # for skin that belongs to the body but reaches up the neck: only what lies by the skull follows the head
-        'skull': [(JJ['head'] + (top - JJ['head']) * 0.3, top, 0.085 * H)]}
+        'head': [(JJ['head'], top, 0.1 * H)]}
     for s in 'LR':
         caps['clav' + s] = [(ctop, JJ['arm' + s], radii['arm' + s] * 1.25)]
         caps['arm' + s] = [(JJ['arm' + s], JJ['fore' + s], radii['arm' + s])]
@@ -1120,11 +1165,11 @@ def capsules(JJ, top, radii, holes, up):
         caps['thigh' + s] = [(JJ['thigh' + s], JJ['shin' + s], radii['thigh'])]
         caps['shin' + s] = [(JJ['shin' + s], JJ['foot' + s], radii['shin'])]
         caps['foot' + s] = [(JJ['foot' + s], JJ['toe' + s], 0.05 * H)]
-    return {'caps': caps, 'hips': JJ['hips'], 'up': up}
+    return {'caps': caps, 'hips': JJ['hips'], 'up': up, 'neck': JJ['neck'], 'head': JJ['head']}
 
 
 # which bone each capsule belongs to
-CAP_BONE = {'clavL': 'chest', 'clavR': 'chest', 'sleeveL': 'armL', 'sleeveR': 'armR', 'pelvis': 'hips', 'skull': 'head'}
+CAP_BONE = {'clavL': 'chest', 'clavR': 'chest', 'sleeveL': 'armL', 'sleeveR': 'armR', 'pelvis': 'hips'}
 
 
 def candidates(p):
@@ -1132,7 +1177,7 @@ def candidates(p):
         # a shirt with sleeves follows the arms around the seam; a sleeveless one has nothing out there that should
         return ['hips', 'spine', 'chest', 'clavL', 'clavR'] + ['sleeve' + s for s in 'LR' if not SLEEVELESS[s]] + ['thighL', 'thighR']
     if p.cls == 'torso2':
-        return ['hips', 'spine', 'chest', 'clavL', 'clavR', 'sleeveL', 'sleeveR', 'thighL', 'thighR', 'skull']
+        return ['hips', 'spine', 'chest', 'clavL', 'clavR', 'sleeveL', 'sleeveR', 'thighL', 'thighR']
     if p.cls == 'arm':
         return ['clav' + p.side, 'arm' + p.side, 'fore' + p.side, 'hand' + p.side]
     if p.cls == 'leg':
@@ -1173,6 +1218,23 @@ for p_ in P:
 
 def capsule_term(v, caps, name):
     return (np.min([seg_dist(v, a, b) / r for a, b, r in caps[name]], axis=0) + 0.05) ** -POWER
+
+
+def up_the_neck(p, v, W, body, patch=None):
+    """Skin that belongs to the body but runs up the neck (and, on some sculpts, on up the cheek): from the base of
+    the skull up it is head and nothing else, so a face never comes apart; the neck below turns from one to the
+    other. The membranes that close such a part's openings go the same way."""
+    if p.cls != 'torso2':
+        return W
+    ny, hy, cx = float(body['neck'][1]), float(body['head'][1]), float(body['neck'][0])
+    # (the neck joint is about level with the chin: the turn happens in the three centimetres below it)
+    col = 1 - smooth(0.08 * H, 0.12 * H, np.abs(v[:, 0] - cx))
+    # ... and the chin hangs lower than the nape: the further forward, the lower the head reaches
+    jaw = 0.9 * np.clip(v[:, 2] - float(body['neck'][2]) - 0.045 * H, 0.0, 0.06 * H)
+    k = smooth(ny - 0.025 * H - jaw, ny + 0.005 * H - jaw, v[:, 1]) * col
+    W = W * (1 - k)[:, None]
+    W[:, BI['head']] += k
+    return W
 
 
 def weights_for(p, v, body):
@@ -1231,6 +1293,7 @@ def weights_for(p, v, body):
                 w = w * below
             W[:, BI[CAP_BONE.get(c, c)]] += w
     W /= W.sum(1, keepdims=True)
+    W = up_the_neck(p, v, W, body)
     W[W < 0.02] = 0
     W /= W.sum(1, keepdims=True)
     return W
@@ -1276,6 +1339,7 @@ def compute_weights(get_verts, body):
                     np.add.at(acc, e[:, 1], W[e[:, 0]])
                     W[mask] = (acc / cnt)[mask]
                 W /= W.sum(1, keepdims=True)
+                W = up_the_neck(p, get_verts(p), W, body, mask.astype(np.float64))
         out[p.name] = W
     if STANDING and OVR.get('seamShoulders', True):
         # A sleeve (or a bare arm) grows out of the body: where it meets the trunk it takes the trunk's own weights,

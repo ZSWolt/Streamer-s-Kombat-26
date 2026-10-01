@@ -76,6 +76,9 @@ const TIPS = [
   'עוד רגע. כמו כל "אני עולה עוד 5 דקות".',
 ];
 
+/** the volume the mute button comes back to when the music was already off */
+const DEFAULT_MUSIC = 0.7;
+
 const fmtDate = (d: string) => { const [y, m, dd] = d.split('-'); return `${+dd}.${+m}.${y}`; };
 
 export class Menus {
@@ -199,14 +202,39 @@ export class Menus {
     };
     void loadUpdates().then(renderNews);
     const offNews = app.input.onUi((e) => { if (e === 'right' || e === 'left') { expanded = !expanded; void loadUpdates().then((u) => { markSeen(u); renderNews(u); }); } });
+    // the music's volume, right here on the home screen: a slider, a mute button, and the - / + keys
+    let loud = app.settings.music || DEFAULT_MUSIC;
+    const volIcon = h('button', { class: 'mm-ico', title: 'השתקה', onclick: () => setVol(app.settings.music > 0 ? 0 : loud) });
+    const slider = h('input', { class: 'mm-range', type: 'range', min: 0, max: 100, step: 5, 'aria-label': 'עוצמת המוזיקה', oninput: () => setVol(Number(slider.value) / 100), onchange: () => slider.blur() });
+    const pct = h('span', { class: 'mm-pct' });
+    const paintVol = () => {
+      const v = app.settings.music;
+      slider.value = String(Math.round(v * 100));
+      volIcon.textContent = v === 0 ? '🔇' : v < 0.4 ? '🔉' : '🔊';
+      pct.textContent = `${Math.round(v * 100)}%`;
+    };
+    const setVol = (v: number) => {
+      v = Math.round(Math.min(1, Math.max(0, v)) * 20) / 20;
+      if (v > 0) loud = v;
+      app.settings.music = v;
+      app.applySettings();
+      paintVol();
+    };
+    paintVol();
+    const onVolKey = (e: KeyboardEvent) => {
+      if (e.key === '-' || e.key === '_') setVol(app.settings.music - 0.1);
+      else if (e.key === '+' || e.key === '=') setVol(app.settings.music + 0.1);
+    };
+    window.addEventListener('keydown', onVolKey);
     const el = this.mount(h('div', { class: 'screen main-menu fade-in' }, [
       logoEl(), list, controls, news, tagline,
-      h('div', { class: 'menu-hint' }, [h('b', {}, ['↑↓']), ' בחירה • ', h('b', {}, ['Enter / ✕']), ' אישור • ', h('b', {}, ['→']), ' מה חדש']),
+      h('div', { class: 'menu-music' }, [h('span', { class: 'mm-lbl' }, ['מוזיקה']), volIcon, slider, pct]),
+      h('div', { class: 'menu-hint' }, [h('b', {}, ['↑↓']), ' בחירה • ', h('b', {}, ['Enter / ✕']), ' אישור • ', h('b', {}, ['→']), ' מה חדש • ', h('b', {}, ['− / +']), ' מוזיקה']),
       this.aiBadge(),
     ]));
     return {
       update: () => { if (app.idleT > 45) { app.idleT = 0; app.goIntro(() => app.goMenu(nav.sel)); } },
-      dispose: () => { nav.off(); offNews(); el.remove(); },
+      dispose: () => { nav.off(); offNews(); window.removeEventListener('keydown', onVolKey); el.remove(); },
     };
   }
 

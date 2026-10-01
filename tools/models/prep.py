@@ -264,9 +264,11 @@ band = [p for p in P if p.cls is None and 0.42 * H < p.c[1] < 0.76 * H]
 torso = max(band, key=lambda p: ((iface(head, p) or {'n': 0})['n'], p.tris))
 torso.cls = 'torso'
 touch = lambda a, b: (iface(a, b) or {'n': 0})['n']
-for p in head_group:
-    # a pendant or a collar up there belongs to the chest if that is what it lies on
-    if p is not head and p is not torso and touch(p, head) >= touch(p, torso):
+for p in sorted(head_group, key=lambda p: -p.c[1]):
+    # a pendant or a collar up there belongs to the chest if that is what it lies on; a head that came in halves,
+    # with the neck and chin as a third part, is all head
+    face = p.hi[1] > head.lo[1] + 0.02 * H and max(abs(p.hi[0] - mid_x), abs(p.lo[0] - mid_x)) < 0.08 * H  # chin, beard
+    if p is not head and p is not torso and (face or sum(touch(p, q) for q in P if q.cls in ('head', 'headacc')) >= touch(p, torso)):
         p.cls = 'headacc'
 # shoes: the biggest low part on each side; soles and laces split off from them ride along
 low = [p for p in P if p.cls is None and p.hi[1] < 0.17 * H]

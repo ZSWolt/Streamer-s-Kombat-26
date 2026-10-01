@@ -110,6 +110,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
 .menu-tagline { position: absolute; bottom: 8.5vh; font: 800 clamp(16px, 2.4vh, 24px) var(--font); color: #fff; text-shadow: 0 2px 6px #000; }
 .menu-hint { position: absolute; bottom: 3vh; font: 600 clamp(12px, 1.7vh, 16px) var(--font); color: var(--muted); }
 .menu-hint b { color: var(--gold); }
+.menu-music { position: absolute; top: 2.4vh; left: 1.6vw; z-index: 5; display: flex; align-items: center; gap: 8px; direction: ltr; padding: 6px 14px 6px 12px; font: 800 calc(14 * var(--u)) var(--font); color: var(--text); background: var(--panel); border: 1px solid var(--panel-b); border-radius: 999px; backdrop-filter: blur(6px); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); }
+.menu-music .mm-lbl { color: var(--gold); }
+.menu-music .mm-ico { padding: 0 2px; font-size: calc(20 * var(--u)); line-height: 1; background: none; border: 0; cursor: pointer; }
+.menu-music .mm-range { width: clamp(90px, 10vw, 160px); accent-color: var(--gold); cursor: pointer; }
+.menu-music .mm-pct { min-width: 3em; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 .side-panel { position: absolute; top: 34vh; width: clamp(220px, 24vw, 340px); font-size: calc(14 * var(--u)); background: var(--panel); border: 1px solid var(--panel-b); border-radius: 8px; padding: 14px 16px; backdrop-filter: blur(6px); box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
 .side-panel.left { left: 1.6vw; }
 .side-panel.right { right: 1.6vw; top: 24vh; }
@@ -500,6 +505,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
 @media (max-width: 900px) {
   .side-panel { display: none; }
   .kmenu { width: 86vw; }
+  .menu-music { left: 6px; gap: 6px; padding: 5px 10px 5px 8px; }
+  .menu-music .mm-lbl, .menu-music .mm-pct { display: none; }
+  .menu-music .mm-range { width: 22vw; max-width: 110px; }
 }
 @media (max-aspect-ratio: 4/3) {
   .cs-grid { grid-template-columns: repeat(6, 13vw); }
