@@ -361,7 +361,6 @@ export class Battle {
       }
       case 'proj':
         A.sfx('proj', pan(m.f[e.p!].x));
-        if (e.s === 'dog') A.sfx('bark');
         if (e.s === 'car') A.sfx('engine');
         break;
       case 'projDie':

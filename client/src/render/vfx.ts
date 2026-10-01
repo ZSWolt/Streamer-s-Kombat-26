@@ -59,7 +59,7 @@ export function textSpriteTex(text: string, color: string, stroke = '#000', font
 
 export const PROJECTILE_EMOJI: Record<string, string> = {
   microwave: '📦', tornado: '🌪️', headset: '🎧', noobs: '🤓', zzz: '💤', car: '🚗', shockwave: '💥', bomb: '💣',
-  hypno: '🌀', cards: '🃏', snipe: '🃏', quake: '💥', dog: '🐕', football: '⚽', pctower: '🖥️', cake: '🎂', dice: '🎲',
+  hypno: '🌀', cards: '🃏', snipe: '🃏', quake: '💥', football: '⚽', pctower: '🖥️', cake: '🎂', dice: '🎲',
   scream: '📢', concards: '🃏', chips: '🪙', indegear: '🎧', subathon: '⏱️', bottle: '🍾',
   agorot: '🪙', coinroll: '🪙', coinrain: '🪙',
 };
@@ -232,7 +232,7 @@ export class Vfx {
         const spin = o.userData.spin as number;
         spr.material.rotation = spin ? t * spin * flip : 0;
         const base = o.userData.base as number;
-        spr.scale.set(base * (key === 'car' || key === 'dog' ? -flip : 1), base, 1);
+        spr.scale.set(base * (key === 'car' ? -flip : 1), base, 1);
         if (key === 'tornado' || key === 'scream' || key === 'hypno') spr.material.rotation = t * 10;
       }
       const halo = o.userData.halo as THREE.Sprite | undefined;

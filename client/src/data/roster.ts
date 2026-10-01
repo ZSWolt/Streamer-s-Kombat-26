@@ -191,19 +191,6 @@ export const ROSTER: Fighter[] = [
     skins: defaultSkins('#53fc18'),
   },
   {
-    id: 'k0nkamc', name: 'K0NKAMC', he: 'מאור כהן', title: 'THE BEAST', titleHe: 'החיה', platform: 'kick', channel: 'kick.com/k0nkamc',
-    accent: '#8c3bff', stage: 5, stats: [2, 5, 5, 2],
-    look: { skin: '#c8906a', hair: '#141010', hairStyle: 'buzz', beard: 'full', headphones: '#b3121a', headphonesAccent: '#111', shirt: '#121212', pants: '#1e1e24', shoes: '#111', build: 'burly', height: 1.04, dog: true },
-    specials: [
-      sp('U', 'הכלב', 'THE DOG', 'point', { kind: 'summon', startup: 14, recovery: 28, damage: 80, speed: 96, size: [950, 700], knockdown: true, life: 110, hitstun: 28, level: 'mid', vfx: 'dog' }),
-      sp('FU', 'חוזר לכושר', 'BACK IN SHAPE', 'lariat', rush({ vfx: 'dumbbell', damage: 110, speed: 72, armor: 1, knockdown: true, startup: 12 })),
-      sp('DU', 'גב לקיר', 'BACK TO THE WALL', 'grab', { kind: 'grab', startup: 8, active: 4, recovery: 32, damage: 150, range: 880, knockdown: true, vfx: 'wallslam' }),
-    ],
-    hype: { name: 'דלי לבה', en: 'LAVA BUCKET', vfx: 'lava' },
-    intro: 'חוזר לכושר.', win: 'גב לקיר.',
-    skins: defaultSkins('#8c3bff'),
-  },
-  {
     id: 'devidtur', name: 'DEVIDTUR', he: 'דויד', title: 'THE NPC', titleHe: 'ה-NPC', platform: 'kick', channel: 'kick.com/devidtur',
     accent: '#53fc18', stage: 5, stats: [4, 2, 3, 3],
     look: { skin: '#f0c8ac', hair: '#d9c27a', hairStyle: 'short', beard: 'none', headphones: '#222', shirt: '#111', shirtText: 'NPC', pants: '#2a2a30', shoes: '#fff', build: 'slim', height: 0.99 },

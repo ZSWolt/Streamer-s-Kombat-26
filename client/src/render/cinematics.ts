@@ -21,7 +21,6 @@ const HYPE: Record<string, { e: string[]; text: string; color: string; style: St
   nice: { e: ['😇', '😈'], text: 'NOT NICE ANYMORE', color: '#ffd84d', style: 'burst' },
   devil: { e: ['😈'], text: 'עידן חדש', color: '#a347ff', style: 'drop' },
   legendary: { e: ['🃏', '🐉', '✨'], text: 'LEGENDARY PULL', color: '#ffd84d', style: 'burst' },
-  lava: { e: ['🔥', '🌋'], text: 'LAVA BUCKET', color: '#ff7a2f', style: 'rain' },
   speedrun: { e: ['⏱️', '💨'], text: 'ANY% WORLD RECORD', color: '#53fc18', style: 'barrage' },
   boiz: { e: ['🧑', '👦', '🧔'], text: 'THE BOIZ!', color: '#cc5de8', style: 'swarm' },
   pickaxe: { e: ['⛏️', '💎'], text: 'CARRY!', color: '#4dd9ff', style: 'barrage' },
@@ -218,14 +217,6 @@ export class Cinematics {
         text(31, 1.8, 'GRADED 10', 'GEM MINT', 'small', 1800);
         break;
       case 'quakepit': this.once(30, 1.1, () => { this.cam.shake(1.6); audio.sfx('slam'); this.vfx.dust(dp.x, true); }); ctx.sink('🪨', 1.3); break;
-      // K0NKAMC
-      case 'lavapit': this.once(30, 1.2, () => this.vfx.burst(dp.x, 0.2, '🔥', 20, 7, 0.8)); ctx.sink('🔥', 1.3); break;
-      case 'dog':
-        ctx.run('🐕', 1.0, 1.4);
-        this.once(30, 1.35, () => audio.sfx('bark'));
-        if (a.t > 1.4) { def.setOverride(def.lib.LYING); def.fx.offsetX += dir * dt * 4; }
-        if (a.t > 2.8) def.fx.hidden = true;
-        break;
       // DEVIDTUR
       case 'unboxing': ctx.drop('📦', 1.3, 0.2, 3.2); this.once(30, 1.8, () => { def.fx.hidden = true; }); text(31, 1.8, 'FRAGILE', 'THIS SIDE UP', 'small', 1600); break;
       case 'despawn':

@@ -44,7 +44,7 @@ VOICES = {'he': 'he-IL-AvriNeural', 'en': 'en-US-GuyNeural'}
 EN_SPOKEN = {
     'odedsvr': 'Oded S.V.R.', 'ronengg': 'Ronen G.G.', 'igz': 'I.G.Z.', 'liorslife': "Lior's Life", 'psyqr': 'Psy Q.R.',
     'sasivetheboiz': 'Sasi and the Boiz', 'devidtur': 'David Tur', 'pedrofederer': 'Pedro Federer', 'maorameleh': 'Maor', 'shilo': 'Shilo', 'philip': 'Philip', 'adam': 'Adam Drakes',
-    'k0nkamc': 'Konka M.C.', 'masterohad': 'Master Ohad', 'shotist': 'Shotist', 'inde': 'Inde',
+    'masterohad': 'Master Ohad', 'shotist': 'Shotist', 'inde': 'Inde',
 }
 
 

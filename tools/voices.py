@@ -27,7 +27,7 @@ YTDLP = os.path.join(BIN, 'yt-dlp.exe')
 WORK = os.path.join(ROOT, 'tools', 'voices')
 OUT = os.path.join(ROOT, 'client', 'public', 'assets', 'audio', 'voices')
 
-KICK = ['odedsvr', 'ronengg', 'igz', 'liorslife', 'psyqr', 'sasivetheboiz', 'devidtur', 'pedrofederer', 'maorameleh', 'k0nkamc', 'masterohad', 'shotist']
+KICK = ['odedsvr', 'ronengg', 'igz', 'liorslife', 'psyqr', 'sasivetheboiz', 'devidtur', 'pedrofederer', 'maorameleh', 'masterohad', 'shotist']
 YOUTUBE = {'inde': ['https://www.youtube.com/watch?v=5YprobtPt8E', 'https://www.youtube.com/watch?v=GFJsH_U8Onc', 'https://www.youtube.com/watch?v=k8DNtTUN2sY']}
 
 # Never put slurs, insults about illness/disability, profanity, hate or gambling into the game.

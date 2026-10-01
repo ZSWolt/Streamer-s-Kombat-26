@@ -73,12 +73,6 @@ export const FLAVOR: Record<string, Flavor> = {
     intro: ['יאווווו, בוסטר חדש.'], reply: ['קיבלתי קלף הכי נדיר בעולם.', 'איזה צליפה.'],
     quote: 'קיבלתי קלף הכי נדיר בעולם.',
   },
-  k0nkamc: {
-    shouts: ['הכלב!', 'חוזר לכושר!', 'גב לקיר!'],
-    banalities: [B('הולך אל מותו', 'INTO THE LAVA', 'lavapit', 'לבה', 'חוזר לכושר.'), B('הכלב', 'THE DOG', 'dog', 'נגרר', 'הכלב לא נושך. בדרך כלל.')],
-    intro: ['חוזר לכושר. היום.'], reply: ['גב לקיר, אחי.', 'לייב של השמחות.'],
-    quote: 'לייב מוקדם היום — חוזר לכושר!',
-  },
   devidtur: {
     shouts: ['NPC MODE', 'קיקר!', 'מחשב חדש!'],
     banalities: [B('Unboxing', 'UNBOXING', 'unboxing', 'FRAGILE', 'קוקו מאן.'), B('דיספאון', 'DESPAWN', 'despawn', 'ERROR 404', 'הקיקרים לא מפסידים.')],
@@ -127,8 +121,7 @@ export const PAIR_BANTER: [string, string, string, string][] = [
   ['shilo', 'ronengg', 'רונן, קח עשר אגורות.', "אצלי זה ז'יטונים, לא אגורות."],
   ['liorslife', 'ronengg', 'רונן גיגי המשיח.', 'תגיד את זה אחרי הקרב.'],
   ['igz', 'odedsvr', 'מה עודד עשה בצבא?', 'בושות, מיכאל.'],
-  ['sasivetheboiz', 'k0nkamc', 'אוגה בוגה?', 'גב לקיר.'],
-  ['shotist', 'k0nkamc', 'זיוואייייי!', 'הכלב שלי מפחד ממך. אני לא.'],
+  ['sasivetheboiz', 'shotist', 'אוגה בוגה?', 'זיוואייייי!'],
 ];
 
 export function banterFor(a: string, b: string): [string, string] {
