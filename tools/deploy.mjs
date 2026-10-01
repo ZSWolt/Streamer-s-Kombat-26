@@ -69,7 +69,7 @@ function copy(rel) {
 }
 console.log('▸ sync →', CLONE);
 for (const d of ['client', 'tests', 'docs']) copy(d);
-for (const f of ['package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', path.join('.github', 'workflows', 'pages.yml')]) copy(f);
+for (const f of ['package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts']) copy(f);
 for (const f of fs.readdirSync(path.join(ROOT, 'tools'))) if (/\.(py|mjs)$/.test(f)) copy(path.join('tools', f));
 for (const f of fs.readdirSync(path.join(ROOT, 'tools', 'models'))) if (/\.(py|sh)$/.test(f)) copy(path.join('tools', 'models', f));
 copy(path.join('tools', 'models', 'overrides'));

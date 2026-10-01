@@ -129,22 +129,29 @@ def strong(a, b):
 
 
 # ------------------------------------------------------------------ classify parts
-head_group = [p for p in P if p.c[1] > 0.74 * H]
+# head: what sits above the collar *on the centre line* (in a T-pose the arms are up at that height too)
+mid_x = float(np.median([p.c[0] for p in P]))
+head_group = [p for p in P if p.c[1] > 0.74 * H and abs(p.c[0] - mid_x) < 0.12 * H and p.hi[0] - p.lo[0] < 0.4 * H]
 head = max(head_group, key=lambda p: p.tris)
 head.cls = 'head'
-for p in head_group:
-    if p is not head:
-        p.cls = 'headacc'
 # torso: the chest-height part the neck goes into (a wide trouser leg can have a bigger bounding box)
 band = [p for p in P if p.cls is None and 0.42 * H < p.c[1] < 0.76 * H]
 torso = max(band, key=lambda p: ((iface(head, p) or {'n': 0})['n'], p.tris))
 torso.cls = 'torso'
-shoes = sorted([p for p in P if p.cls is None and p.hi[1] < 0.17 * H], key=lambda p: p.c[0])
-assert len(shoes) >= 2, 'expected two shoe parts'
-shoeR, shoeL = shoes[0], shoes[-1]
+touch = lambda a, b: (iface(a, b) or {'n': 0})['n']
+for p in head_group:
+    # a pendant or a collar up there belongs to the chest if that is what it lies on
+    if p is not head and p is not torso and touch(p, head) >= touch(p, torso):
+        p.cls = 'headacc'
+# shoes: the biggest low part on each side; soles and laces split off from them ride along
+low = [p for p in P if p.cls is None and p.hi[1] < 0.17 * H]
+shoeR = max([p for p in low if p.c[0] < mid_x], key=lambda p: p.tris, default=None)
+shoeL = max([p for p in low if p.c[0] >= mid_x], key=lambda p: p.tris, default=None)
+assert shoeR is not None and shoeL is not None, 'expected two shoe parts'
 shoeR.cls, shoeR.side, shoeL.cls, shoeL.side = 'shoe', 'R', 'shoe', 'L'
-for extra in shoes[1:-1]:
-    extra.cls = 'acc'
+for extra in low:
+    if extra.cls is None:
+        extra.cls = 'acc'
 for p in P:  # tiny bits (pendants, buckles) ride rigidly on the nearest bone
     if p.cls is None and (p.diag < 0.14 * H or p.tris < 0.006 * total_tris):
         p.cls = 'acc'

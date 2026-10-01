@@ -688,11 +688,66 @@ for s in 'LR':
     k = knee_by_segments(leg_line[s])
     J['shin' + s] = k if k is not None and 0.15 * H < np.linalg.norm(k - J['foot' + s]) < 0.36 * H else line_at(leg_line[s], 0.22 * H)
 pelvis, pelvis_up, lat, HIP_W, thigh_r = place_pelvis()  # from here on the pelvis stays put
+
+
+# ---- A model that already stands straight (made in a T- or A-pose, see docs/reference/model-reference.png).
+# Nothing has to be found by the way it bends: the joints go where a standing body has them, the same on both
+# sides, and the un-posing that follows barely moves anything.
+def leg_is_straight(s):
+    cen = np.array([r[1] for r in leg_line[s] if 0.08 * H < r[1][1] < 0.36 * H])
+    if len(cen) < 4:
+        return False
+    a0, a1 = cen[np.argmin(cen[:, 1])], cen[np.argmax(cen[:, 1])]
+    d = a1 - a0
+    dev = max(float(np.linalg.norm((q - a0) - d * ((q - a0) @ d) / (d @ d))) for q in cen)
+    return norm(d)[1] > 0.97 and dev < 0.02 * H
+
+
+STANDING = OVR['standing'] if 'standing' in OVR else all(leg_is_straight(s) for s in 'LR')
+if STANDING:
+    mx = float((J['footL'][0] + J['footR'][0]) / 2)
+    # The fork of the legs. Thighs that touch share the centre line well below it, but only at mid depth; from
+    # the fork up the trousers are closed all the way from the fly to the seat.
+    crotch = None
+    for yb in np.arange(0.6, 0.18, -0.01):
+        band = leg_cloud[(leg_cloud[:, 1] >= yb * H) & (leg_cloud[:, 1] < (yb + 0.02) * H)]
+        mid_ = band[np.abs(band[:, 0] - mx) < 0.012 * H] if len(band) else band
+        if len(band) < 20:
+            continue
+        if len(mid_) < 4 or np.ptp(mid_[:, 2]) < 0.85 * np.ptp(band[:, 2]):
+            break
+        crotch = yb * H
+    if crotch is None:
+        crotch = 0.4 * H
+        log('warn: could not find the fork of the legs; assumed 0.40')
+    side = {}
+    for s in 'LR':
+        up = [r[1] for r in leg_line[s] if crotch - 0.1 * H < r[1][1] < crotch - 0.02 * H]
+        side[s] = np.mean(up, axis=0) if up else J['foot' + s]
+    half = float(np.clip((side['L'][0] - side['R'][0]) / 2, 0.06 * H, 0.1 * H))
+    # the hip joints sit a little above the fork of the legs, over the middle of each thigh
+    pelvis = np.array([mx, crotch + OVR.get('hipRise', 0.045) * H, (side['L'][2] + side['R'][2]) / 2])
+    pelvis_up, lat, HIP_W = np.array([0, 1.0, 0]), np.array([1.0, 0, 0]), 2 * half
+    J['thighL'], J['thighR'] = pelvis + lat * half, pelvis - lat * half
+    log(f'standing model: neck was {(J["neck"][0] - mx) / H:+.3f} off the centre line')
+    for b_ in ('neck', 'head'):  # a body standing square has its neck on the centre line
+        J[b_] = np.array([mx, J[b_][1], J[b_][2]])
+    log(f'standing model: fork of the legs at {crotch / H:.3f}, hips at {pelvis[1] / H:.3f}, {half / H:.3f} either side')
 for _ in range(1):
     for s in 'LR':
         rows = leg_line[s]
         a = J['foot' + s]
         ab = J['thigh' + s] - a
+        if STANDING:  # a straight leg: thigh and shin are about the same length
+            t_k = 0.5
+            cuts = [c for c in leg_cuts[s] if 0.45 < ((c - a) @ ab) / (ab @ ab) < 0.56]
+            how[s] = 'standing leg, half way up'
+            if cuts:  # trousers cut into parts at the knee
+                t_k = float(((min(cuts, key=lambda c: abs(((c - a) @ ab) / (ab @ ab) - 0.5)) - a) @ ab) / (ab @ ab))
+                how[s] = 'standing leg, at the part cut'
+            J['shin' + s] = a + ab * t_k
+            bend[s], out_dir[s] = 0.0, np.array([0, 0, 1.0])
+            continue
         pts = leg_cloud[own[s] & (gd[s] > 0.08 * H)]
         t = ((pts - a) @ ab) / (ab @ ab)
         mid = (t > 0.15) & (t < 0.85)  # between ankle and hip: the seat is not a knee
@@ -735,6 +790,11 @@ for k_, v_ in OVR.get('joints', {}).items():  # hand-placed knees move the pelvi
     if k_.startswith('shin'):
         J[k_] = np.array(v_, dtype=np.float64)
         how[k_[-1]] = 'override'
+if STANDING:  # both knees at the same height
+    ky = (J['shinL'][1] + J['shinR'][1]) / 2
+    for s in 'LR':
+        a, b = J['foot' + s], J['thigh' + s]
+        J['shin' + s] = a + (b - a) * ((ky - a[1]) / (b[1] - a[1]))
 knee_arc = {s: arc_of(leg_line[s], J['shin' + s]) for s in 'LR'}
 for s in 'LR':
     k = J['shin' + s]
@@ -752,7 +812,7 @@ if not 0.75 < (thigh_len['L'] + thigh_len['R']) / 2 / shin_avg < 1.6:
 
 # ---- arms: elbow = the bend of the arm's centre line; the shoulder joint lies up the upper arm's axis
 UPPER_ARM = OVR.get('upperArm', 0.9)  # upper arm length / (elbow -> end of the fist)
-hole, arm_geo = {}, {}
+hole, arm_geo, arm_straight = {}, {}, {}
 for s in 'LR':
     comp = [p for p in P if p.cls == 'arm' and p.side == s]
     assert comp, f'no arm parts on side {s}'
@@ -794,13 +854,59 @@ for s in 'LR':
     want = UPPER_ARM * lower_len
     seen = float(np.linalg.norm(first - elbow))
     J['arm' + s] = first if seen >= 0.85 * want else elbow + axis * want
-    log(f'arm {s}: lower {lower_len / H:.3f}  cut->elbow {seen / H:.3f}  upper {np.linalg.norm(J["arm" + s] - elbow) / H:.3f}  hole r {rad / H:.3f}  arcs elbow {arm_geo[s][2] / H:.3f} wrist {arm_geo[s][3] / H:.3f} end {t_arc / H:.3f}')
+    # An arm held out straight (T- / A-pose) has no bend to read the elbow from, but it needs none: shoulder,
+    # elbow and wrist lie along it in a body's proportions.
+    chord = tip - first
+    dev = max(float(np.linalg.norm((q - first) - chord * ((q - first) @ chord) / (chord @ chord))) for q in line)
+    ax = norm(chord)
+    arm_straight[s] = dev < 0.05 * H and abs(ax[0]) > 0.35 and OVR.get('straightArms', True)
+    if arm_straight[s]:
+        sg = 1.0 if s == 'L' else -1.0
+        up_ax = norm(line[max(2, len(line) // 3)] - first)  # the way the upper arm runs
+        if abs(up_ax[0]) < 0.3:
+            up_ax = ax
+        S = first + up_ax * ((J['neck'][0] + sg * OVR.get('shoulderX', 0.108) * H - first[0]) / up_ax[0])  # the joint, inside the shoulder
+        T = S + ax * float(((arm.pos - S) @ ax).max())  # the fingertips
+        # the arm's centre line from the joint to the fingertips, in order along the arm
+        span = float((T - S) @ ax)
+        inner = sorted([q for q in line if 0.03 * span < (q - S) @ ax < 0.97 * span], key=lambda q: float((q - S) @ ax))
+        path = np.vstack([S] + inner + [T])
+        t_w = 0.755
+        last = max(comp, key=lambda q: float(((q.s - S) @ ax).max()))  # the part the arm ends with: the hand, if it is its own part
+        for q in comp:
+            f = iface(last, q) if q is not last else None
+            if f:
+                tq = float(((f['c'] - S) @ ax) / ((T - S) @ ax))
+                if 0.62 < tq < 0.88:
+                    t_w = tq
+        W = along(path, t_w)
+        E = along(path, t_w * 0.56)  # upper arm : forearm = 56 : 44
+        J['arm' + s], J['fore' + s], J['hand' + s], J['tip' + s] = S, E, W, T
+        e_arc, w_arc = arc_of(arm_rows, E), arc_of(arm_rows, W)
+        arm_geo[s] = (arm, dist, e_arc, w_arc, max(t_arc, w_arc + 0.02 * H))
+        lower_len = float(np.linalg.norm(T - E))
+        seen = float(np.linalg.norm(first - E))
+        elbow = E
+    log(f'arm {s}: {"straight, " if arm_straight[s] else ""}lower {lower_len / H:.3f}  cut->elbow {seen / H:.3f}  upper {np.linalg.norm(J["arm" + s] - elbow) / H:.3f}  hole r {rad / H:.3f}  arcs elbow {arm_geo[s][2] / H:.3f} wrist {arm_geo[s][3] / H:.3f} end {t_arc / H:.3f}')
 # a shoulder joint is never far from the base of the neck, and the two are the same distance from it
 reach = {s: float(np.clip(np.linalg.norm(J['arm' + s] - J['neck']), 0.12 * H, 0.2 * H)) for s in 'LR'}
 both = (reach['L'] + reach['R']) / 2
-for s in 'LR':
-    J['arm' + s] = J['neck'] + norm(J['arm' + s] - J['neck']) * (0.5 * reach[s] + 0.5 * both)
-log(f'shoulders: {reach["L"] / H:.3f} / {reach["R"] / H:.3f} from the neck')
+if all(arm_straight.values()):
+    # straight arms were placed by proportion already; make the two sides mirror images
+    cx = J['neck'][0]
+    flip = np.array([-1.0, 1, 1])
+    for b in ('arm', 'fore', 'hand', 'tip'):
+        l, r = J[b + 'L'] - [cx, 0, 0], (J[b + 'R'] - [cx, 0, 0]) * flip
+        m = (l + r) / 2
+        J[b + 'L'], J[b + 'R'] = m + [cx, 0, 0], m * flip + [cx, 0, 0]
+    for s in 'LR':
+        a_, d_, _, _, t_ = arm_geo[s]
+        rows_ = centre_line(a_.pos, d_, np.ones(len(a_.pos), bool), 26)
+        arm_geo[s] = (a_, d_, arc_of(rows_, J['fore' + s]), arc_of(rows_, J['hand' + s]), t_)
+else:
+    for s in 'LR':
+        J['arm' + s] = J['neck'] + norm(J['arm' + s] - J['neck']) * (0.5 * reach[s] + 0.5 * both)
+log(f'shoulders: {np.linalg.norm(J["armL"] - J["neck"]) / H:.3f} / {np.linalg.norm(J["armR"] - J["neck"]) / H:.3f} from the neck')
 
 # ---- trunk: pelvis -> neck, bowed the way the back is (a rounded back straightens when the body stands up)
 J['hips'] = pelvis + pelvis_up * 0.015 * H

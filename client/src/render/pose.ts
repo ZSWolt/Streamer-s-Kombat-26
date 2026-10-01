@@ -455,10 +455,11 @@ export const HUMAN: PoseLib = {
     armL: [-1.25, 0, 0.15], foreL: [-0.75, 0, 0], armR: [0.25, 0, -0.55], foreR: [-1.5, 0, 0],
     thighL: [-0.16, 0, 0.12], shinL: [0.12, 0, 0], thighR: [0.1, 0, -0.14], shinR: [0.14, 0, 0], mouth: 0.6,
   }),
-  // relaxed, squared up to the camera, fists loose at the sides
+  // relaxed, squared up to the camera, arms loose and a little away from the body (hanging straight down, a
+  // sleeve modelled with the arm raised bunches up into a shoulder pad)
   STAND: makePose({
     spine: [-0.02, 0, 0], chest: [-0.04, 0, 0], head: [-0.02, 0, 0],
-    armL: [0.08, 0, 0.16], foreL: [-0.3, 0, 0], armR: [0.08, 0, -0.16], foreR: [-0.3, 0, 0],
+    armL: [0.06, 0, 0.44], foreL: [-0.3, 0, 0], armR: [0.06, 0, -0.44], foreR: [-0.3, 0, 0],
     thighL: [-0.02, 0, 0.09], shinL: [0.04, 0, 0], thighR: [0.02, 0, -0.09], shinR: [0.04, 0, 0],
   }),
   DASH_F: hg({ spine: [0.3, 0.1, 0], head: [-0.2, 0, 0], thighL: [-1.0, 0, 0.1], shinL: [0.6, 0, 0], thighR: [0.8, 0, -0.1], shinR: [0.9, 0, 0], hy: -0.1 }),

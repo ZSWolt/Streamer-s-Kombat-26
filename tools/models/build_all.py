@@ -43,17 +43,30 @@ def roster_ids():
         return re.findall(r"\bid: '([a-z0-9]+)'", f.read())
 
 
-def fighter_id(stem: str) -> str:
-    """'EDEN PSYQR' -> psyqr (any word that is a roster id wins), 'Adam Drakes' -> adam (first word otherwise)."""
-    words = stem.lower().replace('_', ' ').replace('-', ' ').split()
+def fighter_id(stem: str):
+    """File name -> (fighter id, version).
+
+    'EDEN PSYQR' -> psyqr (any word that is a roster id wins), 'OHAD' -> masterohad (a word of 4+ letters that is
+    part of an id), 'Adam Drakes' -> adam (first word otherwise). A trailing V<n> is the version of the model:
+    'IGZV2' / 'IGZ V2' -> (igz, 2); the highest version of a fighter is the one that gets built.
+    """
+    import re
+    words, version = [], 1
+    for w in stem.lower().replace('_', ' ').replace('-', ' ').split():
+        m = re.fullmatch(r'(.*?)v(\d+)', w)
+        if m:
+            version = int(m.group(2))
+            w = m.group(1)
+        if w:
+            words.append(w)
     ids = roster_ids()
     for w in words:
         if w in ids:
-            return w
-    for i in ids:  # e.g. 'sasi' for sasivetheboiz
-        if any(len(w) >= 4 and i.startswith(w) for w in words):
-            return i
-    return words[0]
+            return w, version
+    for i in ids:  # e.g. 'sasi' for sasivetheboiz, 'ohad' for masterohad
+        if any(len(w) >= 4 and w in i for w in words):
+            return i, version
+    return words[0], version
 
 
 def run(script, args):
@@ -81,10 +94,18 @@ def main():
     manifest_path = os.path.join(OUT, 'index.json')
     manifest = json.load(open(manifest_path, encoding='utf8')) if os.path.exists(manifest_path) else {}
     ids = roster_ids()
+    files = {}
     for name in sorted(os.listdir(a.src)):
         if not name.lower().endswith('.glb'):
             continue
-        fid = fighter_id(os.path.splitext(name)[0])
+        fid, version = fighter_id(os.path.splitext(name)[0])
+        if fid in files and files[fid][0] >= version:
+            print(f'-- skipped {name}: {files[fid][1]} is a newer version of {fid}', flush=True)
+            continue
+        if fid in files:
+            print(f'-- skipped {files[fid][1]}: {name} is a newer version of {fid}', flush=True)
+        files[fid] = (version, name)
+    for fid, (_, name) in files.items():
         listed = fid in ids
         if not listed and not (a.unlisted and fid in only):  # props such as "Concards Pack.glb" live in the same folder
             print(f'-- skipped {name}: no fighter with id "{fid}" in the roster', flush=True)
