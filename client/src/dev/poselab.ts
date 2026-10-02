@@ -114,6 +114,9 @@ async function main() {
         if (mat === 'lids' && m.name.startsWith('inside_')) (o as THREE.Mesh).material = new THREE.MeshBasicMaterial({ color: '#f0f' });
         if (mat === 'wire') { m.wireframe = true; m.side = THREE.DoubleSide; }
         if (mat === 'normals') (o as THREE.Mesh).material = new THREE.MeshNormalMaterial({ side: THREE.FrontSide });
+        if (mat === 'flat') (o as THREE.Mesh).material = new THREE.MeshBasicMaterial({ map: m.map, side: THREE.DoubleSide }); // the texture alone, unlit
+        if (mat === 'nonormal') { m.normalMap = null; m.needsUpdate = true; }
+        if (mat === 'rough') { m.normalMap = null; m.roughness = 1; m.needsUpdate = true; }
         if (mat === 'grey') { m.map = null; m.normalMap = null; m.color.set('#b0b0b0'); m.needsUpdate = true; }
         if (mat === 'back') {
           const b = new THREE.SkinnedMesh((o as THREE.SkinnedMesh).geometry, new THREE.MeshBasicMaterial({ color: '#f02', side: THREE.BackSide }));

@@ -401,6 +401,45 @@ for side in ('L', 'R'):
     palm.fingers = True
     log(f'hand {side}: {len(pieces)} finger pieces welded onto {palm.name} ({n0 - len(palm.o.data.vertices)} vertices merged, {left} rim edges left)')
 
+# ------------------------------------------------------------------ the face
+# A face is what a fighter is known by, and thinning ruins it first: the sculpt's texture is cut into small islands,
+# and collapsing edges across them turns eyes, brows and a hairline into shards. Tripo does not always put the face
+# in the part that is the head (the skull and the hair can be one part, the skin of the face and the neck another,
+# and that one is small enough to be taken for an accessory). So the face is found by looking: the part that is in
+# front, most of the way across the window where a face is - from the chin to the brow, either side of the nose.
+def face_parts():
+    hg = [p for p in P if p.cls in ('head', 'headacc', 'torso2')]
+    hd = [p for p in P if p.cls == 'head']
+    if not hg or not hd:
+        return []
+    top = max(p.hi[1] for p in hg)
+    cx = float(np.mean([(p.lo[0] + p.hi[0]) / 2 for p in hd]))
+    y0, y1, hw, n = top - 0.14 * H, top - 0.055 * H, 0.032 * H, 16
+    front = np.full((n, n), -np.inf)
+    owner = np.full((n, n), -1)
+    for k, p in enumerate(hg):
+        v = verts_gl(p.o)
+        m = (np.abs(v[:, 0] - cx) < hw) & (v[:, 1] > y0) & (v[:, 1] < y1)
+        if not m.any():
+            continue
+        v = v[m]
+        i = np.clip(((v[:, 0] - cx + hw) / (2 * hw) * n).astype(int), 0, n - 1)
+        j = np.clip(((v[:, 1] - y0) / (y1 - y0) * n).astype(int), 0, n - 1)
+        for a, b, z in zip(i, j, v[:, 2]):
+            if z > front[a, b]:
+                front[a, b], owner[a, b] = z, k
+    seen = (owner >= 0).sum()
+    out = [p for k, p in enumerate(hg) if seen and (owner == k).sum() >= 0.25 * seen]
+    if seen:
+        # what is kept whole: from under the beard to the hairline, a face's width, as deep as the ears begin
+        FACE_BOX.update(cx=cx, lo=top - 0.16 * H, hi=top - 0.03 * H, hw=0.052 * H, back=float(front[owner >= 0].max()) - 0.065 * H)
+    log('face: ' + ', '.join(f'{p.name} ({p.cls}, {int((owner == hg.index(p)).sum() * 100 / max(1, seen))}% of the window)' for p in out))
+    return out
+
+
+FACE_BOX = {}
+FACE = face_parts() if OVR.get('keepFace', True) else []
+
 # ------------------------------------------------------------------ decimate
 budget_w = {p.name: (p.tris ** 0.8) * (2.6 if p.cls == 'head' else 2.4 if getattr(p, 'fingers', False) else 1.25 if p.cls == 'arm' else 1.0) for p in P}
 bw = sum(budget_w.values())
@@ -411,7 +450,27 @@ for p in P:
     bpy.context.view_layer.objects.active = o
     for q in scene.objects:
         q.select_set(q is o)
-    if ratio < 0.98:
+    if p in FACE and ratio < 0.98:
+        # the face itself keeps every triangle it was sculpted with; the rest of its part (the neck, the ears, the
+        # scalp, the back of the head) is thinned like anything else
+        me = o.data
+        co = verts_gl(o)
+        B = FACE_BOX
+        keep = (np.abs(co[:, 0] - B['cx']) < B['hw']) & (co[:, 1] > B['lo']) & (co[:, 1] < B['hi']) & (co[:, 2] > B['back'])
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_mode(type='FACE')
+        bpy.ops.mesh.select_all(action='DESELECT')
+        bm = bmesh.from_edit_mesh(me)
+        rest = 0
+        for f in bm.faces:
+            if not all(keep[v.index] for v in f.verts):
+                f.select_set(True)
+                rest += 1
+        bmesh.update_edit_mesh(me)
+        bpy.ops.mesh.decimate(ratio=max(0.08, ratio))
+        bpy.ops.object.mode_set(mode='OBJECT')
+        log(f'face kept: {p.name} {p.tris} -> {tri_count(o)} triangles ({p.tris - rest} of them the face, untouched)')
+    elif ratio < 0.98:
         m = o.modifiers.new('dec', 'DECIMATE')
         m.decimate_type = 'COLLAPSE'
         m.ratio = ratio
@@ -506,6 +565,144 @@ for p in P:
             o.data.materials.append(mat)
     o['cls'] = p.cls
     o['side'] = p.side or ''
+
+# ------------------------------------------------------------------ the colours of a face
+def iris_texels(o, img):
+    """Which texels of a face's texture are its eyes' irises. Colour alone cannot say (half a beard is the grey-green
+    of a hazel iris), and place alone cannot either (the sculpt's eyes are where they are). Both together can: in the
+    band of the face where eyes are, the vertices of that colour gather in two small clumps, one either side of the
+    nose. What the triangles around each clump are painted with is the eye."""
+    if not FACE_BOX:
+        return None
+    me = o.data
+    w, h = img.size
+    px = np.empty(w * h * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    px = px.reshape(h, w, 4)[:, :, :3].astype(np.float64)
+    co = verts_gl(o)
+    nl = len(me.loops)
+    lv = np.zeros(nl, dtype=np.int32)
+    me.loops.foreach_get('vertex_index', lv)
+    uv = np.zeros(nl * 2, dtype=np.float32)
+    me.uv_layers.active.data.foreach_get('uv', uv)
+    uv = uv.reshape(-1, 2)
+    vuv = np.zeros((len(co), 2))
+    vuv[lv] = uv
+    col = px[np.clip((vuv[:, 1] % 1 * h).astype(int), 0, h - 1), np.clip((vuv[:, 0] % 1 * w).astype(int), 0, w - 1)]
+    lum = col @ np.array([0.3, 0.6, 0.1])
+    B = FACE_BOX
+    top = B['hi'] + 0.03 * H
+    dx = co[:, 0] - B['cx']
+    band = (co[:, 1] > top - 0.115 * H) & (co[:, 1] < top - 0.05 * H) & (np.abs(dx) > 0.006 * H) & (np.abs(dx) < 0.035 * H) & (co[:, 2] > B['back'] + 0.03 * H)
+    like = band & (col[:, 1] > 0.84 * col[:, 0]) & (lum > 0.22) & (lum < 0.62)
+    centres = {}
+    for side in (-1, 1):
+        idx = np.nonzero(like & (dx * side > 0))[0]
+        if len(idx) < 6:
+            continue
+        # the densest clump: the vertex with most of the others within an iris' width of it
+        pts = co[idx]
+        d = np.linalg.norm(pts[:, None, :2] - pts[None, :, :2], axis=2)
+        near = d < 0.006 * H
+        best = int(near.sum(1).argmax())
+        if near[best].sum() >= 6:
+            centres[side] = pts[near[best]].mean(0)
+    if len(centres) == 1:  # the other eye is where this one is, the other side of the nose
+        (side, c), = centres.items()
+        centres[-side] = np.array([2 * B['cx'] - c[0], c[1], c[2]])
+    if not centres:
+        return None
+    R = 0.0037 * H  # an iris is about 12 mm across
+    rad = np.full((h, w), np.inf)  # how far from the middle of its iris each texel is, in iris radii
+    polys = [tuple(pl.loop_indices) for pl in me.polygons if len(pl.loop_indices) == 3]
+    tri_v = lv[np.array(polys)]
+    for c in centres.values():
+        dv = np.linalg.norm(co[:, :2] - c[None, :2], axis=1)
+        inv = (dv < 1.6 * R) & (np.abs(co[:, 2] - c[2]) < 0.02 * H)
+        for t in np.nonzero(inv[tri_v].any(1))[0]:
+            pa, pb, pc = (co[lv[i]] for i in polys[t])
+            a, b_, c_ = (uv[i] * np.array([w, h]) for i in polys[t])
+            x0, x1 = int(np.floor(min(a[0], b_[0], c_[0]))), int(np.ceil(max(a[0], b_[0], c_[0])))
+            y0, y1 = int(np.floor(min(a[1], b_[1], c_[1]))), int(np.ceil(max(a[1], b_[1], c_[1])))
+            den = (b_[1] - c_[1]) * (a[0] - c_[0]) + (c_[0] - b_[0]) * (a[1] - c_[1])
+            if abs(den) < 1e-12:
+                continue
+            for yy in range(max(0, y0), min(h, y1 + 1)):
+                for xx in range(max(0, x0), min(w, x1 + 1)):
+                    qx, qy = xx + 0.5, yy + 0.5
+                    l1 = ((b_[1] - c_[1]) * (qx - c_[0]) + (c_[0] - b_[0]) * (qy - c_[1])) / den
+                    l2 = ((c_[1] - a[1]) * (qx - c_[0]) + (a[0] - c_[0]) * (qy - c_[1])) / den
+                    if l1 >= -0.35 and l2 >= -0.35 and 1 - l1 - l2 >= -0.35:  # (a little over the edge: texels are big)
+                        q3 = l1 * pa + l2 * pb + (1 - l1 - l2) * pc
+                        rad[yy, xx] = min(rad[yy, xx], float(np.linalg.norm(q3[:2] - c[:2])) / R)
+    log('eyes at ' + '  '.join(f'({(c[0] - B["cx"]) / H:+.3f}, {(top - c[1]) / H:.3f} below the top)' for c in centres.values()) + f': {int((rad < 1).sum())} texels')
+    return rad.ravel()
+
+
+def face_tone(img, spec, o=None):
+    """A sculpt made from one picture often gets a face's colouring wrong in ways that make it someone else: a black
+    beard comes out brown and thin, heavy brows come out faint, blue eyes come out hazel. This repaints the face's
+    texture in place, by colour alone (the texture is a jumble of small islands, so nothing can be said by place):
+      hair   what is clearly darker than the skin (beard, brows, lashes) is made darker still - `depth` is how much -
+             and turned to this colour;
+      iris   what is neither skin nor hair but grey-green and of middling brightness is an iris, and gets this one.
+    Values are the texture's own (sRGB, 0..1). Set per fighter in overrides/<id>.json as "faceTone"."""
+    w, h = img.size
+    px = np.empty(w * h * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    px = px.reshape(-1, 4)
+    rgb = px[:, :3].astype(np.float64)
+    LUM = np.array([0.3, 0.6, 0.1])
+    lum = rgb @ LUM
+    used = lum > 0.03
+    q = (rgb[used] * 15.999).astype(int)
+    key = q[:, 0] * 256 + q[:, 1] * 16 + q[:, 2]
+    skin = rgb[used][key == np.bincount(key).argmax()].mean(0)  # the commonest colour of a face is its skin
+    ls = float(skin @ LUM)
+    out = rgb.copy()
+    n_hair = n_iris = 0
+    eye = np.zeros(len(rgb), dtype=bool)
+    if 'iris' in spec:
+        iris = np.array(spec['iris'], dtype=np.float64)
+        m = iris_texels(o, img) if o is not None else None
+        if m is not None:
+            # A disc the size of an iris, painted the colour as given: darker at its rim, a pupil in the middle, a
+            # little of the sculpt's own shading kept; lashes that cross it (dark) stay lashes.
+            disc = np.clip((1.0 - m) / 0.2, 0, 1) * used
+            # (the lids that cover the top and the bottom of an iris are skin, and stay skin)
+            lid = np.clip(((rgb[:, 0] - rgb[:, 1]) / np.maximum(rgb[:, 0], 1e-4) - 0.14) / 0.06, 0, 1) * (lum > 0.4)
+            wgt = disc * (1 - lid) * np.clip((lum - 0.12) / 0.1, 0, 1) * float(spec.get('irisMix', 0.9))
+            mid = float(np.median(lum[disc > 0.5])) if (disc > 0.5).any() else 0.4
+            shade = np.clip(lum / max(mid, 1e-4), 0.8, 1.1) * (1 - 0.3 * np.clip((m - 0.7) / 0.3, 0, 1))
+            out = out * (1 - wgt)[:, None] + iris[None, :] * shade[:, None] * wgt[:, None]
+            out = out * (1 - 0.75 * np.clip((0.38 - m) / 0.12, 0, 1) * used)[:, None]
+            n_iris = int((wgt > 0.4).sum())
+            eye = m < 1.8  # ... and the eye is left out of the darkening below (lashes are dark enough as they are)
+    if 'hair' in spec:
+        hair = np.array(spec['hair'], dtype=np.float64)
+        depth = float(spec.get('depth', 1.8))
+        k = np.clip(lum / ls, 1e-4, 1.0)
+        sm = np.clip((0.8 - k) / 0.3, 0.0, 1.0)
+        sm = sm * sm * (3 - 2 * sm)  # 0 on skin and its shading, 1 on what is plainly hair
+        sm[~used | eye] = 0
+        tone = out * (1 - sm * (1 - k ** (depth - 1)))[:, None]
+        l2 = tone @ LUM
+        t = (sm * float(spec.get('hairMix', 0.8)))[:, None]
+        out = tone * (1 - t) + (hair[None, :] / float(hair @ LUM)) * l2[:, None] * t
+        n_hair = int((sm > 0.5).sum())
+    px[:, :3] = np.clip(out, 0, 1).astype(np.float32)
+    img.pixels.foreach_set(px.ravel())
+    img.update()
+    log(f'face tone: {img.name} skin {[round(float(x), 2) for x in skin]}, {n_hair} hair texels, {n_iris} iris texels of {int(used.sum())}')
+
+
+if OVR.get('faceTone') and FACE:
+    for p in FACE:
+        for mat in p.o.data.materials:
+            bsdf = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None) if mat and mat.use_nodes else None
+            img = find_image(bsdf.inputs['Base Color']) if bsdf else None
+            if img:
+                face_tone(img, OVR['faceTone'], p.o)
 
 # ------------------------------------------------------------------ cache
 os.makedirs(CACHE, exist_ok=True)
