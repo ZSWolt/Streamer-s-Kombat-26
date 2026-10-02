@@ -269,6 +269,11 @@ export const ATTACKS: Record<string, AttackAnim> = {
     wind: g({ armR: [-2.6, 0, -0.5], foreR: [-1.6, 0, 0], spine: [-0.1, -0.5, 0], thighL: [-0.7, 0, 0.1] }),
     hit: g({ armR: [-1.5, 0, 0], foreR: [-0.1, 0, 0], spine: [0.35, 0.6, 0], thighR: [0.5, 0, -0.1], mouth: 0.7 }),
   },
+  // sidearm, flat (records): the rear arm drawn back level with the shoulder, then whipped round and out
+  disc: {
+    wind: g({ armR: [0.2, -0.5, -1.3], foreR: [-0.9, 0, 0], spine: [0.05, -0.6, 0], head: [-0.06, 0.45, 0], armL: [-1.3, 0, 0.2], foreL: [-0.7, 0, 0], thighL: [-0.6, 0, 0.1] }),
+    hit: g({ armR: [-1.5, 0, -0.15], foreR: [-0.05, 0, 0], spine: [0.25, 0.6, 0], armL: [-0.3, 0, 0.5], foreL: [-1.8, 0, 0], thighR: [0.45, 0, -0.1], mouth: 0.7 }),
+  },
   hypno: {
     wind: g({ armL: [-1.6, 0, 0.9], foreL: [-2.5, 0, 0], armR: [-1.6, 0, -0.9], foreR: [-2.5, 0, 0], eyes: 1, mouth: 0.2 }),
     hit: g({ armL: [-1.55, 0, 0.2], foreL: [-0.1, 0, 0], armR: [-1.45, 0, -0.2], foreR: [-0.2, 0, 0], spine: [0.15, 0, 0], mouth: 0.5 }),
@@ -409,6 +414,12 @@ Object.assign(H_ATTACKS, {
     wind: hg({ armR: [-2.0, 0.3, -1.4], foreR: [-1.9, 0, 0], spine: [-0.05, -0.45, 0], chest: [0, -0.15, 0], head: [-0.04, 0.4, 0], armL: [-1.35, 0, 0.2], foreL: [-0.8, 0, 0], thighL: [-0.5, 0, 0.1] }),
     hit: hg({ armR: [-1.72, 0, -0.1], foreR: [-0.1, 0, 0], spine: [0.2, 0.55, 0], chest: [0.08, 0.25, 0], head: [-0.1, -0.6, 0], armL: [-0.45, 0, 0.4], foreL: [-1.8, 0, 0], thighR: [0.45, 0, -0.1], shinR: [0.5, 0, 0], mouth: 0.7 }),
   },
+  // sidearm throw (records): the record held flat and drawn back level with the shoulder, the body turned away;
+  // then the hips and the shoulders come round and the arm whips out flat, letting go as it points at the target
+  disc: {
+    wind: hg({ armR: [0.2, -0.5, -1.3], foreR: [-0.9, 0, 0], spine: [0.02, -0.5, 0], chest: [0, -0.2, 0], head: [-0.04, 0.5, 0], armL: [-1.35, 0, 0.2], foreL: [-0.7, 0, 0], thighL: [-0.5, 0, 0.1], hy: -0.05 }),
+    hit: hg({ armR: [-1.6, 0, -0.15], foreR: [-0.06, 0, 0], spine: [0.18, 0.55, 0], chest: [0.06, 0.25, 0], head: [-0.08, -0.6, 0], armL: [-0.4, 0, 0.45], foreL: [-1.8, 0, 0], thighR: [0.42, 0, -0.1], shinR: [0.5, 0, 0], mouth: 0.7 }),
+  },
   // pushing front kick
   kickball: {
     wind: hg({ thighL: [-1.5, 0, 0.08], shinL: [2.0, 0, 0], spine: [-0.05, 0, 0], thighR: [0.1, 0, -0.1], shinR: [0.2, 0, 0] }),
@@ -452,6 +463,7 @@ openHands('scream', [0.6, 0.6], [0.15, 0.15]);
 openHands('yawn', [0.3, 0.3], [0.3, 0.3]);
 openHands('throw_', [1, 0.9], [1, 0.15]);
 openHands('lob', [1, 0.9], [1, 0.2]);
+openHands('disc', [1, 0.85], [1, 0.1]);
 H_ATTACKS.toss = H_ATTACKS.throw_;
 H_ATTACKS.straightSp = H_ATTACKS.straight;
 

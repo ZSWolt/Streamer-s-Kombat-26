@@ -15,4 +15,6 @@ export const RIVALS: Record<string, string> = {
   shilo: 'ronengg',
   philip: 'adam',
   adam: 'philip',
+  superbibi: 'shaliachpizza',
+  shaliachpizza: 'superbibi',
 };

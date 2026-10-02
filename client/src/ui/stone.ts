@@ -65,3 +65,12 @@ export function installStone() {
 export function stone(text: string, cls = ''): HTMLSpanElement {
   return h('span', { class: 'stone' + (cls ? ' ' + cls : ''), 'data-t': text }, [text]);
 }
+
+/** Shrinks a stone text that is already on the page until it is no wider than `max` pixels (stone text never wraps,
+ * and a long name in a narrow place — "שליח פיצה" on a phone held upright — would run off the screen). */
+export function fitStone(el: HTMLElement | null, max: number) {
+  if (!el || max <= 0) return;
+  el.style.fontSize = '';
+  const w = el.getBoundingClientRect().width;
+  if (w > max) el.style.fontSize = `${(parseFloat(getComputedStyle(el).fontSize) * max) / w}px`;
+}

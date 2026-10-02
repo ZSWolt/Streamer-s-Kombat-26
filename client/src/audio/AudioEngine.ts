@@ -284,6 +284,17 @@ export class AudioEngine {
         this.tone(t, 0.12, g, { f0: 500, f1: 300, vol: 0.4, type: 'sawtooth' });
         this.tone(t + 0.18, 0.12, g, { f0: 520, f1: 280, vol: 0.4, type: 'sawtooth' });
         break;
+      case 'splat': // something soft and wet (a pizza) landing hard
+        this.noise(t, 0.2, g, { f0: 1800 * rnd, f1: 180, vol: 0.75, attack: 0.003 });
+        this.tone(t, 0.13, g, { f0: 150 * rnd, f1: 55, vol: 0.7 });
+        this.noise(t + 0.02, 0.12, g, { type: 'bandpass', f0: 900, f1: 400, q: 2, vol: 0.35 });
+        break;
+      case 'scratch': // a DJ scratch: the record dragged forward and back
+        this.noise(t, 0.08, g, { type: 'bandpass', f0: 450 * rnd, f1: 3200, q: 5, vol: 0.55, attack: 0.01 });
+        this.tone(t, 0.08, g, { f0: 260 * rnd, f1: 1100, vol: 0.1, type: 'sawtooth' });
+        this.noise(t + 0.09, 0.11, g, { type: 'bandpass', f0: 3000 * rnd, f1: 380, q: 5, vol: 0.55, attack: 0.01 });
+        this.tone(t + 0.09, 0.11, g, { f0: 1000 * rnd, f1: 210, vol: 0.1, type: 'sawtooth' });
+        break;
     }
   }
 

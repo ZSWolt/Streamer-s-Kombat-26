@@ -37,7 +37,9 @@ def blender():
     raise SystemExit('Blender not found (set BLENDER=path/to/blender.exe)')
 
 
-ALIASES = {'oahd': 'masterohad'}  # file names as they arrived (a typo of OHAD)
+# file names as they arrived (typos of OHAD and SUPERBIBI), and the names the pizza delivery guy's file may come under
+ALIASES = {'oahd': 'masterohad', 'suberbibi': 'superbibi', 'bibi': 'superbibi',
+           'delivery': 'shaliachpizza', 'shliach': 'shaliachpizza', 'shaliah': 'shaliachpizza', 'sheliach': 'shaliachpizza', 'שליח': 'shaliachpizza'}
 
 
 def roster_ids():

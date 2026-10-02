@@ -112,6 +112,19 @@ FLAVOR.adam = {
   intro: ['העיר הזאת קטנה מדי לשנינו.', 'ספור עד שלוש.'], reply: ['אני שולף ראשון.', 'נסגור את זה מהר.'],
   quote: 'אדם דרייקס תמיד סוגר חשבון.',
 };
+// THE DELIVERY CREW: the same moves, each with his own way of saying it
+FLAVOR.superbibi = {
+  shouts: ['משלוח מהאוויר!', 'להיט!', 'מגש משפחתי!', 'כל הלהיטים!'],
+  banalities: [B('למעלה ורחוק', 'UP AND AWAY', 'upaway', 'המריא', 'עוד משלוח הושלם.'), B('להיט על ריפיט', 'ON REPEAT', 'hitsong', 'להיט', 'השיר הזה ייתקע לך בראש.')],
+  intro: ['סופר ביבי הגיע. מישהו הזמין פיצה?', 'אל דאגה, הגיבור כאן.'], reply: ['זה תפקיד לסופר ביבי.', 'שום דבר לא עוצר משלוח.'],
+  quote: 'זה ציפור? זה מטוס? זה סופר ביבי!',
+};
+FLAVOR.shaliachpizza = {
+  shouts: ['פיצה חמה!', 'תקליט חדש!', 'מגש משפחתי!', 'פלייליסט!'],
+  banalities: [B('משלוח אקספרס', 'EXPRESS DELIVERY', 'scooter', 'נמסר', 'ההזמנה נמסרה.'), B('מגש על הראש', 'SPECIAL DELIVERY', 'pizzabox', 'בתיאבון', 'בתיאבון. ואל תשכח טיפ.')],
+  intro: ['הזמנת פיצה? הגעתי.', 'שלושים דקות או שזה עליי.'], reply: ['תחתום פה.', 'טיפ זה לא חובה, אבל מומלץ.'],
+  quote: 'פיצה הפקות — מגיעים חם.',
+};
 
 export const PAIR_BANTER: [string, string, string, string][] = [
   ['odedsvr', 'ronengg', 'היום מנצחים את רונן גיגי.', 'בפיפא אולי. פה — לא.'],
@@ -122,6 +135,10 @@ export const PAIR_BANTER: [string, string, string, string][] = [
   ['liorslife', 'ronengg', 'רונן גיגי המשיח.', 'תגיד את זה אחרי הקרב.'],
   ['igz', 'odedsvr', 'מה עודד עשה בצבא?', 'בושות, מיכאל.'],
   ['sasivetheboiz', 'shotist', 'אוגה בוגה?', 'זיוואייייי!'],
+  ['superbibi', 'shaliachpizza', 'שליח, המגש הזה היה צריך להגיע אליי.', 'סופר ביבי, אתה אפילו לא בתור.'],
+  ['shaliachpizza', 'shilo', 'שילה, יוצא 89.90.', 'יש לי בדיוק. באגורות.'],
+  ['shaliachpizza', 'odedsvr', 'עודד, כתבנו עליך שיר.', 'בושות. תשמיע.'],
+  ['superbibi', 'shilo', 'שילה, הצוות צריך אותך.', 'רק אם יש פיצה.'],
 ];
 
 export function banterFor(a: string, b: string): [string, string] {

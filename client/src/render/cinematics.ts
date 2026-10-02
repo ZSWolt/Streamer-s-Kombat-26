@@ -27,6 +27,7 @@ const HYPE: Record<string, { e: string[]; text: string; color: string; style: St
   shekel: { e: ['🪙'], text: 'שקל שלם!', color: '#e0aa2a', style: 'rain' },
   rampage: { e: ['👊', '💥'], text: 'RAMPAGE!', color: '#e8b646', style: 'barrage' },
   highnoon: { e: ['🤠', '⭐', '🌵'], text: 'HIGH NOON', color: '#ffb347', style: 'burst' },
+  pizzaprod: { e: ['🍕', '#record', '🎵'], text: 'פיצה הפקות!', color: '#ff8a1f', style: 'rain' },
 };
 
 interface Active {
@@ -242,6 +243,33 @@ export class Cinematics {
         ctx.drop('🐷', 1.3, 0.12, 3.4);
         this.once(30, 1.75, () => { this.vfx.burst(dp.x, 1, '🪙', 22, 9, 0.5); audio.sfx('coin'); });
         text(31, 2.0, 'קופת חיסכון', 'PIGGY BANK', 'small', 1600);
+        break;
+      // THE DELIVERY CREW: SUPER BIBI
+      case 'upaway': // carried off into the sky, and a twinkle where they went
+        hit(30, 1.3, '#4dabf7');
+        this.once(31, 1.3, () => this.vfx.burst(dp.x, 1.2, '💨', 8, 5, 0.7));
+        ctx.fly(1.3);
+        text(32, 2.0, 'למעלה ורחוק', 'UP AND AWAY', 'small', 1800);
+        this.once(33, 2.7, () => { def.fx.hidden = true; this.vfx.bigProp('✨', dp.x, 5.2, 1.3, new THREE.Vector3(0, 0, 0), 0.8, 6); audio.sfx('coin'); });
+        break;
+      case 'hitsong': // on repeat: a record taller than they are turning behind them, and they go round with it
+        this.once(30, 1.1, () => { this.vfx.bigProp('#record', dp.x, 1.2, 2.9, new THREE.Vector3(0, 0, 0), 2.9, 7).position.z = -0.7; audio.sfx('scratch'); });
+        if (a.t > 1.3) { def.fx.spin += dt * 13; if (Math.random() < 0.12) this.vfx.emote(dp.x, 1.5, Math.random() < 0.5 ? '🎵' : '🎶', 0.6); }
+        this.once(31, 2.2, () => audio.sfx('scratch'));
+        text(32, 1.9, 'להיט', 'ON REPEAT', 'small', 1700);
+        break;
+      // THE DELIVERY CREW: THE PIZZA GUY
+      case 'scooter': // the delivery arrives, at speed
+        ctx.run('🛵', 1.1, 2.1);
+        this.once(30, 1.1, () => audio.sfx('engine'));
+        hit(31, 1.5, '#ff8a1f');
+        ctx.fly(1.5);
+        text(32, 2.0, 'משלוח אקספרס', 'EXPRESS DELIVERY', 'small', 1800);
+        break;
+      case 'pizzabox': // a family pizza, from a great height
+        ctx.drop('🍕', 1.3, 0.1, 3.8);
+        this.once(30, 1.75, () => { this.vfx.burst(dp.x, 0.8, '🧀', 12, 7, 0.5); this.vfx.burst(dp.x, 0.8, '🍅', 8, 6, 0.45); audio.sfx('splat', 0, 1.3); });
+        text(31, 2.0, 'בתיאבון', 'SPECIAL DELIVERY', 'small', 1700);
         break;
       default: ctx.drop('💥', 1.3); break;
     }

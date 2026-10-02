@@ -72,6 +72,16 @@ const upper = (o: Partial<SpecialSpec> & { vfx: string; damage: number }): Speci
 const defaultSkins = (_accent: string): Fighter['skins'] => [{ name: 'רגיל' }];
 const secretSkin = (name: string, tint: string, secret: string): Fighter['skins'] => [{ name: 'רגיל' }, { name, tint, secret }];
 
+// THE DELIVERY CREW (youtube.com/@שליח_פיצה, "פיצה הפקות"): Super Bibi and the Pizza Guy fight with the same
+// moves — pizzas, and records of the crew's songs.
+const DELIVERY_CREW: SpecialDef[] = [
+  sp('U', 'פיצות', 'PIZZA TOSS', 'throw', shot({ vfx: 'pizza', damage: 30, count: 3, spread: 22, speed: 84, size: [300, 300] })),
+  sp('FU', 'תקליט', 'HIT RECORD', 'disc', shot({ vfx: 'record', damage: 72, speed: 150, startup: 17, size: [380, 240] })),
+  sp('DU', 'מגש משפחתי', 'FAMILY PIZZA', 'lob', shot({ vfx: 'pizzapie', damage: 82, speed: 52, vy: 92, gravity: 6, knockdown: true, size: [420, 420] })),
+  sp('BU', 'פלייליסט', 'PLAYLIST', 'disc', shot({ vfx: 'records', damage: 26, count: 3, spread: 30, speed: 98, size: [270, 270] })),
+];
+const DELIVERY_HYPE: Fighter['hype'] = { name: 'פיצה הפקות', en: 'PIZZA PRODUCTIONS', vfx: 'pizzaprod' };
+
 export const ROSTER: Fighter[] = [
   {
     id: 'odedsvr', name: 'ODEDSVR', he: 'עודד', title: 'THE HOST', titleHe: 'המארח', platform: 'kick', channel: 'kick.com/odedsvr',
@@ -272,6 +282,24 @@ export const ROSTER: Fighter[] = [
     hype: { name: 'צהרי היום', en: 'HIGH NOON', vfx: 'highnoon' },
     intro: 'העיר הזאת קטנה מדי לשנינו.', win: 'ככה סוגרים חשבון.',
     skins: defaultSkins('#e8b646'),
+  },
+  {
+    id: 'superbibi', name: 'SUPER BIBI', he: 'סופר ביבי', title: 'THE SUPERHERO', titleHe: 'גיבור העל', platform: 'youtube', channel: 'youtube.com/@שליח_פיצה',
+    accent: '#2f7fd6', stage: 3, stats: [3, 4, 4, 2],
+    look: { skin: '#e2b190', hair: '#c9c9c9', hairStyle: 'sidepart', beard: 'none', shirt: '#1d5d8c', pants: '#1d5d8c', shoes: '#b3261a', build: 'normal', height: 1 },
+    specials: DELIVERY_CREW,
+    hype: DELIVERY_HYPE,
+    intro: 'סופר ביבי הגיע. מישהו הזמין פיצה?', win: 'עוד משלוח הושלם.',
+    skins: defaultSkins('#2f7fd6'),
+  },
+  {
+    id: 'shaliachpizza', name: 'SHALIACH PIZZA', he: 'שליח פיצה', title: 'THE DELIVERY GUY', titleHe: 'השליח', platform: 'youtube', channel: 'youtube.com/@שליח_פיצה',
+    accent: '#ff8a1f', stage: 2, stats: [5, 2, 2, 4],
+    look: { skin: '#d8a888', hair: '#1c1611', hairStyle: 'short', beard: 'stubble', cap: { color: '#d2281e', backwards: false }, shirt: '#d2281e', shirtText: 'PIZZA', pants: '#1c1d22', shoes: '#f0f0f0', build: 'slim', height: 1 },
+    specials: DELIVERY_CREW,
+    hype: DELIVERY_HYPE,
+    intro: 'הזמנת פיצה? הגעתי.', win: 'בתיאבון. ואל תשכח טיפ.',
+    skins: defaultSkins('#ff8a1f'),
   },
 ];
 

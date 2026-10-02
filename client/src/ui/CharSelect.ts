@@ -12,7 +12,7 @@ import { clear, h } from './dom';
 import { logoEl } from './logo';
 import { portraitUrl } from './portraits';
 import { K, motionInput, spInput } from './keys';
-import { stone } from './stone';
+import { fitStone, stone } from './stone';
 
 export interface SelectResult { chars: [number, number]; skins: [number, number]; stage: number; p2cpu?: boolean }
 export interface NetPick { char: number; skin: number; locked: boolean; stage?: number }
@@ -372,6 +372,7 @@ export class CharSelect implements Screen {
         h('div', { class: 'moves' }, f.specials.map((s) => h('div', { class: 'mv' }, [s.name, h('small', {}, [spInput(s.input) + ' · ' + motionInput(s.input)])]))),
         skins.length > 1 && !secret ? h('div', { class: 'skin' }, [`סקין: ${f.skins[c.skin]?.name ?? ''}  (${K('hp')} להחלפה)`]) : '',
       );
+      fitStone(el.querySelector<HTMLElement>('.stone.n'), el.clientWidth);
       if (c.locked) el.append(h('div', { class: 'ready' }, ['מוכן!']));
     }
   }

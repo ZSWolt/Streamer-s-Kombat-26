@@ -392,6 +392,141 @@ export function lettuce(): THREE.Group {
   return shadowed(g);
 }
 
+/** The top of a pizza (the whole circle; a slice shows its own wedge of it): crust, sauce at the rim, cheese,
+ * pepperoni in two rings (so every sixth of it gets one whole and two cut ones), olives and basil. */
+function pizzaTop(): THREE.Texture {
+  return canvasTex(512, 512, (c, w, h) => {
+    let sd = 5;
+    const r = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
+    const R = w / 2, cx = w / 2, cy = h / 2;
+    const disc = (x: number, y: number, rad: number, col: string | CanvasGradient) => { c.fillStyle = col; c.beginPath(); c.arc(x, y, rad, 0, Math.PI * 2); c.fill(); };
+    const crust = c.createRadialGradient(cx, cy, R * 0.8, cx, cy, R);
+    crust.addColorStop(0, '#f0bf6a'); crust.addColorStop(0.6, '#d9933f'); crust.addColorStop(1, '#a8642a');
+    c.fillStyle = '#a8642a'; c.fillRect(0, 0, w, h);
+    disc(cx, cy, R, crust);
+    disc(cx, cy, R * 0.86, '#c23a1f'); // sauce showing at the rim
+    disc(cx, cy, R * 0.82, '#f5c24e');
+    for (let i = 0; i < 70; i++) { // melted, browned cheese
+      const a = r() * Math.PI * 2, d = Math.sqrt(r()) * R * 0.78;
+      c.globalAlpha = 0.35 + r() * 0.35;
+      disc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 8 + r() * 22, r() < 0.7 ? '#ffdb7a' : '#e19a35');
+    }
+    c.globalAlpha = 1;
+    const pep = (a: number, d: number) => {
+      const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d, pr = R * 0.12;
+      disc(x, y, pr * 1.06, '#7e1610');
+      disc(x, y, pr, '#b8291d');
+      for (let k = 0; k < 6; k++) disc(x + (r() - 0.5) * pr * 1.2, y + (r() - 0.5) * pr * 1.2, pr * 0.12, '#e8a08a');
+      c.globalAlpha = 0.5; disc(x - pr * 0.3, y - pr * 0.3, pr * 0.35, '#e0573f'); c.globalAlpha = 1;
+    };
+    for (let i = 0; i < 6; i++) { pep((i / 6) * Math.PI * 2, R * 0.6); pep(((i + 0.5) / 6) * Math.PI * 2, R * 0.33); }
+    for (let i = 0; i < 7; i++) { // black olive rings
+      const a = r() * Math.PI * 2, d = R * (0.15 + r() * 0.6), x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d;
+      c.strokeStyle = '#1d1a18'; c.lineWidth = 7; c.beginPath(); c.arc(x, y, 9, 0, Math.PI * 2); c.stroke();
+    }
+    for (let i = 0; i < 5; i++) { // basil
+      const a = r() * Math.PI * 2, d = R * (0.2 + r() * 0.55);
+      c.save(); c.translate(cx + Math.cos(a) * d, cy + Math.sin(a) * d); c.rotate(r() * 3);
+      c.fillStyle = '#3e8f2e'; c.beginPath(); c.ellipse(0, 0, 16, 8, 0, 0, Math.PI * 2); c.fill();
+      c.restore();
+    }
+  });
+}
+const pizzaMats = () => ({
+  top: mat('pizzaTop', () => new THREE.MeshStandardMaterial({ map: pizzaTop(), roughness: 0.6 })),
+  crust: mat('pizzaCrust', () => new THREE.MeshStandardMaterial({ color: '#d69a50', roughness: 0.85 })),
+  under: mat('pizzaUnder', () => new THREE.MeshStandardMaterial({ color: '#e3bb82', roughness: 0.9 })),
+});
+
+/** A whole pizza (one unit across), its top to the camera. */
+export function pizzaPie(): THREE.Group {
+  const g = new THREE.Group();
+  const { top, crust, under } = pizzaMats();
+  const body = new THREE.Group();
+  body.add(new THREE.Mesh(geo('pizzaDisc', () => new THREE.CylinderGeometry(0.5, 0.5, 0.045, 48)), [crust, top, under]));
+  const rim = new THREE.Mesh(geo('pizzaRim', () => new THREE.TorusGeometry(0.472, 0.034, 8, 48)), crust);
+  rim.rotation.x = Math.PI / 2;
+  rim.position.y = 0.02;
+  body.add(rim);
+  body.rotation.x = Math.PI / 2; // the top faces the camera
+  g.add(body);
+  return shadowed(g);
+}
+
+/** A slice of that pizza (a sixth, one unit from tip to crust), turning about its middle. */
+export function pizzaSlice(): THREE.Group {
+  const R = 1, A = Math.PI / 3, T = 0.055;
+  const mid = (2 * R * Math.sin(A / 2)) / (3 * (A / 2)); // how far a wedge's centre of mass is from its tip
+  const g = new THREE.Group();
+  const { top, crust, under } = pizzaMats();
+  const body = new THREE.Group();
+  body.add(new THREE.Mesh(geo('sliceWedge', () => new THREE.CylinderGeometry(R, R, T, 12, 1, false, -A / 2, A).translate(0, 0, -mid)), [crust, top, under]));
+  body.add(new THREE.Mesh(geo('sliceRim', () => {
+    const t = new THREE.TorusGeometry(R * 0.955, 0.055, 8, 14, A);
+    t.rotateX(Math.PI / 2); // into the plane of the slice ...
+    t.rotateY(A / 2 - Math.PI / 2); // ... and round to the slice's outer edge
+    return t.translate(0, T * 0.3, -mid);
+  }), crust));
+  const cut = mat('sliceCut', () => new THREE.MeshStandardMaterial({
+    roughness: 0.8, side: THREE.DoubleSide,
+    map: canvasTex(64, 32, (c, w, h) => { c.fillStyle = '#e3bb82'; c.fillRect(0, 0, w, h); c.fillStyle = '#f5c24e'; c.fillRect(0, 0, w, h * 0.4); c.fillStyle = '#c23a1f'; c.fillRect(0, h * 0.4, w, h * 0.1); }),
+  }));
+  for (const th of [-A / 2, A / 2]) { // the two cut sides
+    const side = new THREE.Mesh(geo('sliceCutSide', () => new THREE.PlaneGeometry(R, T)), cut);
+    side.rotation.y = th - Math.PI / 2;
+    side.position.set((Math.sin(th) * R) / 2, 0, (Math.cos(th) * R) / 2 - mid);
+    body.add(side);
+  }
+  body.rotation.x = Math.PI / 2; // the top faces the camera
+  g.add(body);
+  return shadowed(g);
+}
+
+/** The crew's songs ("פיצה הפקות"): one on the label of each record, by `kind`. */
+export const RECORD_SONGS: [string, string][] = [['עודדי', '#e23b2e'], ['הסכם ממון', '#f2a516'], ['בלי בושה', '#2f7fd6'], ['מה שנותר', '#3aa655'], ['איתן', '#a347ff'], ['עצור', '#ff5fa2']];
+/** Draws a vinyl record filling the canvas (grooves, sheen, the label in `col` with the song's name). */
+export function drawRecord(c: CanvasRenderingContext2D, w: number, h: number, title: string, col: string) {
+  const R = w / 2, cx = w / 2, cy = h / 2;
+  c.fillStyle = '#0b0b0d'; c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.fill();
+  let sd = 3;
+  const r = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
+  c.lineWidth = Math.max(1, w / 400);
+  for (let rad = R * 0.36; rad < R * 0.97; rad += Math.max(2, w / 170)) { // the grooves
+    c.strokeStyle = `rgba(255,255,255,${0.03 + r() * 0.06})`;
+    c.beginPath(); c.arc(cx, cy, rad, 0, Math.PI * 2); c.stroke();
+  }
+  c.strokeStyle = '#000'; c.lineWidth = w / 120; // the gaps between the tracks
+  for (const k of [0.5, 0.62, 0.74, 0.86]) { c.beginPath(); c.arc(cx, cy, R * k, 0, Math.PI * 2); c.stroke(); }
+  for (const [a0, al] of [[-0.5, 0.13], [Math.PI - 0.5, 0.13], [-0.2, 0.08], [Math.PI - 0.2, 0.08]] as [number, number][]) { // the light across the grooves
+    c.fillStyle = `rgba(255,255,255,${al})`;
+    c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, R * 0.97, a0, a0 + 0.42); c.closePath(); c.fill();
+  }
+  c.fillStyle = col; c.beginPath(); c.arc(cx, cy, R * 0.34, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,0.35)'; c.lineWidth = w / 100; c.beginPath(); c.arc(cx, cy, R * 0.3, 0, Math.PI * 2); c.stroke();
+  c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  let size = w * 0.1;
+  c.font = `900 ${size}px "Heebo", Arial, sans-serif`;
+  while (c.measureText(title).width > R * 0.5 && size > 8) { size -= 2; c.font = `900 ${size}px "Heebo", Arial, sans-serif`; }
+  c.fillText(title, cx, cy - R * 0.12);
+  c.font = `700 ${w * 0.04}px "Heebo", Arial, sans-serif`;
+  c.fillText('פיצה הפקות', cx, cy + R * 0.16);
+  c.fillStyle = '#111'; c.beginPath(); c.arc(cx, cy, R * 0.035, 0, Math.PI * 2); c.fill();
+}
+
+/** A vinyl record (one unit across) of one of the crew's songs, its label to the camera. */
+export function vinylRecord(kind = 0): THREE.Group {
+  const k = ((kind % RECORD_SONGS.length) + RECORD_SONGS.length) % RECORD_SONGS.length;
+  const [title, col] = RECORD_SONGS[k];
+  const g = new THREE.Group();
+  const face = mat('vinylFace' + k, () => new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.1, envMapIntensity: 0.55, map: canvasTex(512, 512, (c, w, h) => drawRecord(c, w, h, title, col)) }));
+  const edge = mat('vinylEdge', () => new THREE.MeshStandardMaterial({ color: '#0d0d0f', roughness: 0.4 }));
+  const m = new THREE.Mesh(geo('vinyl', () => new THREE.CylinderGeometry(0.5, 0.5, 0.018, 48)), [edge, face, face]);
+  m.rotation.x = Math.PI / 2; // face the camera by default
+  m.castShadow = true;
+  g.add(m);
+  return g;
+}
+
 /** A green bud: a knobbly little cone with a few orange hairs and a leaf. */
 export function bud(kind = 0): THREE.Group {
   const g = new THREE.Group();

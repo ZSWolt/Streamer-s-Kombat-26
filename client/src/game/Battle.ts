@@ -10,6 +10,7 @@ import { cloneMatch, createMatch, step } from '../sim/match';
 import type { MatchConfig, MatchState, SimEvent } from '../sim/types';
 import { St } from '../sim/types';
 import { CameraDirector } from '../render/CameraDirector';
+import { RECORD_SONGS } from '../render/props';
 import { Cinematics } from '../render/cinematics';
 import { ProceduralFighterView } from '../render/FighterView';
 import type { Renderer } from '../render/Renderer';
@@ -289,6 +290,15 @@ export class Battle {
       case 'creep': audio.sfx('twang', pan); this.vfx.burst(x, y, '🎵', 6, 5, 0.45); break;
       case 'lettuce': this.vfx.burst(x, y, '🥬', 4, 4, 0.4); break;
       case 'batza': this.vfx.burst(x, y, '🍃', 4, 4, 0.35); break;
+      case 'pizza': audio.sfx('splat', pan, 0.8); this.vfx.hitSpark(x, y, 1, false, '#ffb347'); this.vfx.burst(x, y, '🧀', 3, 4, 0.34); break;
+      case 'pizzapie': audio.sfx('splat', pan, 1.2); this.vfx.hitSpark(x, y, 2, false, '#ffb347'); this.vfx.burst(x, y, '🍕', 6, 6, 0.45); this.vfx.burst(x, y, '🍅', 3, 4, 0.34); break;
+      case 'record': case 'records': {
+        audio.sfx('scratch', pan);
+        this.vfx.burst(x, y, '🎵', vfx === 'record' ? 6 : 3, 5, 0.42);
+        // the name of the song it was (the crew's own: "פיצה הפקות")
+        if (vfx === 'record') this.vfx.floatText(x, y + 0.7, '♪ ' + RECORD_SONGS[Math.floor(Math.random() * RECORD_SONGS.length)][0], '#9ad8ff', 0.42);
+        break;
+      }
     }
   }
 
@@ -380,6 +390,7 @@ export class Battle {
         A.sfx('proj', pan(m.f[e.p!].x));
         if (e.s === 'car') A.sfx('engine');
         if (e.s === 'creep') A.sfx('guitar', pan(m.f[e.p!].x));
+        if (e.s === 'record') A.sfx('scratch', pan(m.f[e.p!].x), 0.8);
         if (e.s === 'indegear') this.vfx.floatText(m.f[e.p!].x / 1000, 1.95, 'תקנו מוצרים!', '#27a6ff', 0.4);
         break;
       case 'projDie':

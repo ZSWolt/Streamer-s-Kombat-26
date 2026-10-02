@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { agoraCoin, agorotShower, bud, cardPack, cluster, guitar, indeProduct, lettuce, perfumeBottle, pokerChip, subathonBoard, wineBottle } from './props';
+import { agoraCoin, agorotShower, bud, cardPack, cluster, drawRecord, guitar, indeProduct, lettuce, perfumeBottle, pizzaPie, pizzaSlice, pokerChip, subathonBoard, vinylRecord, wineBottle } from './props';
 import { canvasTex } from './textures';
 
 // Emoji billboards give every projectile/prop an instantly readable "chat emote" look.
@@ -24,6 +24,11 @@ export function emojiTex(e: string, size = 256): THREE.Texture {
       g.fillStyle = '#fff'; g.font = `900 ${Math.floor(size * 0.085)}px "Bebas Neue", Impact`; g.textAlign = 'center';
       g.fillText('MAOR', x0 + bw * 0.5, y0 + bh * 0.08);
     });
+    emojiCache.set(key, t);
+    return t;
+  }
+  if (e === '#record') { // a vinyl record (the emoji are CDs)
+    t = canvasTex(size, size, (g, w, h) => drawRecord(g, w, h, 'להיט', '#e23b2e'));
     emojiCache.set(key, t);
     return t;
   }
@@ -62,9 +67,10 @@ export const PROJECTILE_EMOJI: Record<string, string> = {
   hypno: '🌀', cards: '🃏', snipe: '🃏', quake: '💥', football: '⚽', pctower: '🖥️', cake: '🎂', dice: '🎲',
   scream: '📢', concards: '🃏', chips: '🪙', indegear: '🎧', subathon: '⏱️', bottle: '🍾',
   agorot: '🪙', coinroll: '🪙', coinrain: '🪙', creep: '🎸', wine: '🍷', perfume: '🧴', lettuce: '🥬', batza: '🍃',
+  pizza: '🍕', pizzapie: '🍕', record: '💿', records: '💿',
 };
 /** projectiles drawn as real 3D props (render/props.ts) instead of emoji billboards */
-const PROP_KEYS = new Set(['concards', 'chips', 'indegear', 'subathon', 'agorot', 'coinroll', 'coinrain', 'creep', 'wine', 'perfume', 'lettuce', 'batza']);
+const PROP_KEYS = new Set(['concards', 'chips', 'indegear', 'subathon', 'agorot', 'coinroll', 'coinrain', 'creep', 'wine', 'perfume', 'lettuce', 'batza', 'pizza', 'pizzapie', 'record', 'records']);
 
 interface Particle {
   obj: THREE.Object3D;
@@ -227,6 +233,11 @@ export class Vfx {
           else if (key === 'perfume') o3.rotation.set(Math.sin(a * 0.06 + ph) * 0.4, a * 0.1 + ph, -flip * a * 0.11);
           else if (key === 'lettuce') o3.rotation.set(a * 0.07 + ph, a * 0.11 + ph, 0);
           else if (key === 'batza') o3.rotation.set(a * 0.09 + ph, a * 0.13, flip * a * 0.06 + ph);
+          // a slice spins flat and wobbles; a whole pizza turns like tossed dough; a record spins on its own axis,
+          // tipped towards the camera so its label shows
+          else if (key === 'pizza') o3.rotation.set(-0.75 + Math.sin(a * 0.06 + ph) * 0.3, Math.sin(a * 0.045 + ph) * 0.35, -flip * (a * 0.17 + ph));
+          else if (key === 'pizzapie') o3.rotation.set(-0.85 + Math.sin(a * 0.05) * 0.15, Math.sin(a * 0.04) * 0.2, -flip * a * 0.1);
+          else if (key === 'record' || key === 'records') o3.rotation.set(-0.95 + Math.sin(a * 0.07 + ph) * 0.12, Math.sin(a * 0.05 + ph) * 0.15, -flip * (a * 0.21 + ph));
           else o3.rotation.set(Math.sin(a * 0.05) * 0.08, Math.sin(a * 0.04) * 0.18, Math.sin(a * 0.07) * 0.06);
         };
         if (key === 'coinrain') {
@@ -234,7 +245,8 @@ export class Vfx {
         } else if (prop.userData.cluster) {
           for (const c of prop.children) tumble(c, p.id * 1.7 + (c.userData.ph as number));
         } else tumble(prop, p.id * 1.7);
-        if (key === 'creep' && t - ((o.userData.note as number) ?? 0) > 0.16) { // the guitar leaves a trail of notes
+        const notes = key === 'creep' ? 0.16 : key === 'record' ? 0.12 : key === 'records' ? 0.3 : 0;
+        if (notes && t - ((o.userData.note as number) ?? 0) > notes) { // the guitar and the records leave a trail of notes
           o.userData.note = t;
           this.emote(p.x / 1000 - flip * 0.3, p.y / 1000 + 0.2, Math.random() < 0.5 ? '🎵' : '🎶', 0.34);
         }
@@ -277,10 +289,13 @@ export class Vfx {
     else if (key === 'batza') { prop = cluster((i) => bud(id + i), 2, 0.3, 0.8); prop.scale.setScalar(size * 1.35); }
     else if (key === 'coinroll') { prop = agoraCoin(0); prop.scale.setScalar(size); }
     else if (key === 'coinrain') { prop = agorotShower(); prop.scale.setScalar(size * 1.5); }
+    else if (key === 'pizza') { prop = pizzaSlice(); prop.scale.setScalar(size * 1.35); }
+    else if (key === 'pizzapie') { prop = pizzaPie(); prop.scale.setScalar(size * 1.3); }
+    else if (key === 'record' || key === 'records') { prop = vinylRecord(id); prop.scale.setScalar(size * (key === 'record' ? 1.55 : 1.7)); }
     else { prop = subathonBoard(); prop.scale.setScalar(size * 1.9); }
     if (key !== 'subathon' && key !== 'coinrain') {
       const coin = key === 'chips' || key === 'agorot' || key === 'coinroll';
-      const glow: Record<string, string> = { indegear: '#27a6ff', creep: '#ffb347', wine: '#c2183a', perfume: '#d58cff', lettuce: '#8ee05a', batza: '#6fd040' };
+      const glow: Record<string, string> = { indegear: '#27a6ff', creep: '#ffb347', wine: '#c2183a', perfume: '#d58cff', lettuce: '#8ee05a', batza: '#6fd040', pizza: '#c98a3a', pizzapie: '#c98a3a', record: '#3d5f80', records: '#3d5f80' }; // dim: the glow is drawn over the prop, and would bleach a black record
       const halo = this.sprite(this.sparkTex, glow[key] ?? (coin ? '#ffd27a' : '#ff5fd2'), size * 1.7);
       halo.material.opacity = 0.2;
       halo.position.z = -0.15;
