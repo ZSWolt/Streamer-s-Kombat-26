@@ -4,7 +4,8 @@
 //
 //   id     fighter id (roster); a model is used if assets/models has one. Several ids (a,b,c) = one row each
 //   poses  comma list: a state pose (GUARD, WIN ...) or attack.phase (jab.wind / jab.hit / jab.follow);
-//          a+b@0.5 blends two of them; default = the states
+//          a+b@0.5 blends two of them; default = the states (see dev/poses.ts); POSE^135 = that cell seen from
+//          135 degrees of yaw whatever `view` says; POSE~0.5 = with the hands half closed
 //   view   game (the match camera's angle, default) | front | side | back | <degrees of yaw>
 //   cols   poses per row (default 8)
 //   px     width of one cell in pixels (default 250)
@@ -12,42 +13,26 @@
 //   zoom   magnify (e.g. 3) and aim at height `at` (metres) to look at hands or a face
 //   on     with zoom: keep this joint (handL, handR, head ...) in the middle of every cell
 //   bg     background colour (hex without #)
+//   mat    back = back faces in red | lids = the dark insides of openings in magenta | wire | double
+//   only   draw only the meshes whose names start with one of these (only=leg_2,torso)
 //   shot   save the sheet to tools/shots/<shot>.jpg through the dev server
 import * as THREE from 'three';
 import { ROSTER, fighterIndex } from '../data/roster';
 import { preloadModels } from '../render/model';
 import * as P from '../render/pose';
 import { applyPose, buildRig } from '../render/rig';
+import { resolve as resolvePose, STATES } from './poses';
 
 const q = new URLSearchParams(location.search);
 const ids = (q.get('id') ?? 'odedsvr').split(',');
 const view = q.get('view') ?? 'game';
 const zoom = Number(q.get('zoom') ?? 1), at = Number(q.get('at') ?? 1);
-const STATES = ['NEUTRAL', 'STAND', 'GUARD', 'CROUCH', 'BLOCK', 'BLOCK_CROUCH', 'JUMP', 'HIT_HIGH', 'HIT_MID', 'AIR_HIT', 'LYING', 'GETUP', 'DIZZY', 'WIN', 'WIN2', 'TAUNT'];
 const poseNames = (q.get('poses') ?? STATES.join(',')).split(',').filter(Boolean);
 const cols = ids.length > 1 ? poseNames.length : Number(q.get('cols') ?? 8);
 const names = ids.flatMap(() => poseNames);
-const AIR = new Set(['JUMP', 'AIR_HIT']);
 
 let LIB: P.PoseLib = P.CLASSIC;
-function lookup(name: string): { pose: P.Pose; air: boolean } {
-  const lib = { NEUTRAL: P.NEUTRAL, ...LIB } as unknown as Record<string, P.Pose>;
-  if (name.includes('.')) {
-    const [a, ph] = name.split('.');
-    const anim = LIB.ATTACKS[a];
-    if (!anim) throw new Error('no attack ' + a);
-    return { pose: (anim as unknown as Record<string, P.Pose>)[ph] ?? anim.hit, air: !!anim.air };
-  }
-  if (!lib[name]) throw new Error('no pose ' + name);
-  return { pose: lib[name], air: AIR.has(name) };
-}
-
-function resolve(name: string): { pose: P.Pose; air: boolean } {
-  const m = /^(.+)\+(.+)@([\d.]+)$/.exec(name);
-  if (!m) return lookup(name);
-  const a = lookup(m[1]), b = lookup(m[2]);
-  return { pose: P.lerpPose(a.pose, b.pose, Number(m[3]), new Float32Array(P.POSE_LEN)), air: a.air && b.air };
-}
+const resolve = (name: string) => resolvePose(LIB, name);
 
 async function main() {
   await preloadModels();
@@ -72,7 +57,8 @@ async function main() {
   names.forEach((name, i) => {
     const rig = buildRig(ROSTER[fighterIndex(ids.length > 1 ? ids[Math.floor(i / cols)] : ids[0])], 0);
     LIB = rig.skin && q.get('lib') !== 'classic' ? P.HUMAN : P.CLASSIC;
-    const [poseName, ownGrip] = name.split('~'); // GUARD~0.5 = that pose with the hands half closed
+    const [nameYaw, ownYaw] = name.split('^'); // GUARD^135 = that pose seen from 135 degrees
+    const [poseName, ownGrip] = nameYaw.split('~'); // GUARD~0.5 = that pose with the hands half closed
     const { pose, air } = resolve(poseName);
     applyPose(rig, pose);
     if (rig.skin) {
@@ -89,7 +75,7 @@ async function main() {
       rig.root.position.y = (rows - 1 - row) * cellH + cellH * 0.45 - at * zoom;
       rig.root.position.x -= Number(q.get('dx') ?? 0) * zoom; // look this far to the side of the body's middle (metres, on screen)
     }
-    rig.root.rotation.y = yaw;
+    rig.root.rotation.y = ownYaw != null ? (Number(ownYaw) * Math.PI) / 180 : yaw;
     const on = q.get('on') as P.JointName | null; // put this joint (handL, head ...) in the middle of the cell
     const bone = on && rig.skin ? (rig.skin as unknown as { bones: THREE.Object3D[] }).bones[P.J[on]] : null;
     if (bone) {
@@ -116,14 +102,19 @@ async function main() {
   void grid;
   // one cell at a time, each fighter clipped to its own cell (zoomed in they are wider than a cell)
   const roots = (window as unknown as { rigs: { root: THREE.Object3D }[] }).rigs.map((r) => r.root);
-  const mat = q.get('mat'); // double = both sides of every face | wire = the mesh itself | back = back faces in red
+  const only = q.get('only')?.split(','); // draw only the meshes whose name starts with one of these (leg_2,torso ...)
+  if (only) for (const root of roots) root.traverse((o) => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.visible = only.some((s) => o.name.startsWith(s)); });
+  const mat = q.get('mat'); // double = both sides of every face | wire = the mesh itself | back = back faces in red | lids = the patches that close openings in magenta
   if (mat) {
     for (const root of roots) {
       root.traverse((o) => {
         const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-        if (!m || !(o as THREE.SkinnedMesh).isSkinnedMesh) return;
+        if (!m || !(o as THREE.SkinnedMesh).isSkinnedMesh || !o.visible) return;
         if (mat === 'double') m.side = THREE.DoubleSide;
+        if (mat === 'lids' && m.name.startsWith('inside_')) (o as THREE.Mesh).material = new THREE.MeshBasicMaterial({ color: '#f0f' });
         if (mat === 'wire') { m.wireframe = true; m.side = THREE.DoubleSide; }
+        if (mat === 'normals') (o as THREE.Mesh).material = new THREE.MeshNormalMaterial({ side: THREE.FrontSide });
+        if (mat === 'grey') { m.map = null; m.normalMap = null; m.color.set('#b0b0b0'); m.needsUpdate = true; }
         if (mat === 'back') {
           const b = new THREE.SkinnedMesh((o as THREE.SkinnedMesh).geometry, new THREE.MeshBasicMaterial({ color: '#f02', side: THREE.BackSide }));
           b.bind((o as THREE.SkinnedMesh).skeleton, (o as THREE.SkinnedMesh).bindMatrix);

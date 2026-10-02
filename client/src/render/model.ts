@@ -30,10 +30,32 @@ interface SkRig {
   tips: Record<string, number[]>;
   headTop: number[];
   sole: number;
+  /** the middle of the face in the rest pose and half the head's height (portraits); older builds leave them out */
+  face?: number[];
+  headR?: number;
   /** finger bones (children of the hand bones): each turns about `axis` (model space, rest pose) by angle x grip */
   fingers?: { bone: string; axis: number[]; angle: number }[];
 }
 export interface ModelAsset { id: string; scene: THREE.Object3D; rig: SkRig }
+
+// A model is drawn from both sides (a sculpt's parts are open shells), and three lights the back of a face with its
+// normal turned round. On these bodies that is wrong far more often than right: what shows from behind is a sliver
+// of patch at a seam, or a triangle folded over in the crease of a hip in the middle of a kick, and with its normal
+// turned round it is a dark fleck on the cloth. So both sides of a face are lit with the normal the surface was
+// given, turned only as far as it takes to face the eye.
+const NORMAL_BEGIN = THREE.ShaderChunk.normal_fragment_begin
+  .replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = 1.0;')
+  .replace('vec3 normal = normalize( vNormal );', `vec3 normal = normalize( vNormal );
+	{
+		vec3 skEye = isOrthographic ? vec3( 0.0, 0.0, 1.0 ) : normalize( vViewPosition );
+		float skFacing = dot( normal, skEye );
+		if ( skFacing < 0.0 ) normal -= 2.0 * skFacing * skEye;
+	}`);
+
+function litAlikeFromBothSides(mat: THREE.Material) {
+  mat.onBeforeCompile = (shader) => { shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_begin>', NORMAL_BEGIN); };
+  mat.customProgramCacheKey = () => 'sk-lit-alike';
+}
 
 const assets = new Map<string, ModelAsset>();
 
@@ -199,6 +221,7 @@ export class ModelSkin {
         mat = src.clone();
         if (tint) { mat.color.lerp(new THREE.Color(tint), 0.35); mat.emissive = new THREE.Color(tint); mat.emissiveIntensity = 0.12; }
       }
+      litAlikeFromBothSides(mat);
       m.material = mat;
       this.materials.push(mat);
     });
@@ -255,8 +278,8 @@ export class ModelSkin {
     const headTop = V(sk.headTop);
     const scale = (RIG_HEIGHT * 0.97) / (sk.height - sk.sole);
     this.root.scale.setScalar(scale);
-    this.headSize = ((headTop.y - P[J.head].y) * 0.5) * scale;
-    this.faceOff = new THREE.Vector3(0, (headTop.y - P[J.head].y) * 0.55, sk.height * 0.07);
+    this.headSize = (sk.headR ?? (headTop.y - P[J.head].y) * 0.5) * scale;
+    this.faceOff = sk.face ? V(sk.face).sub(P[J.head]) : new THREE.Vector3(0, (headTop.y - P[J.head].y) * 0.55, sk.height * 0.07);
     // the procedural rig's own limb lengths
     const jl = (j: number) => joints[j].position.length();
     this.rigLeg = jl(J.shinL) + jl(J.footL);

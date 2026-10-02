@@ -1,9 +1,11 @@
 #!/bin/sh
-# Dev loop for a model's hands: rig one model straight into the game's assets (no debug renders).
+# Dev loop: rig one model straight into the game's assets (no debug renders) and update the manifest.
 #   sh tools/models/rigquick.sh <id>
 BL="/c/Program Files/Blender Foundation/Blender 5.2/blender.exe"
 T="G:/AI/Claude/TEKKEN/tools/models"
-"$BL" -b --factory-startup -P "$T/rig.py" -- "$T/cache" "$1" "G:/AI/Claude/TEKKEN/client/public/assets/models/$1.glb" --overrides "$T/overrides/$1.json" 2>&1 | grep -E "^@@ (standing|shoulders|sleeveless|exported|ok|warn)|Error|Traceback|File \"|line [0-9]+"
+mkdir -p "$T/dbg2"
+"$BL" -b --factory-startup -P "$T/rig.py" -- "$T/cache" "$1" "G:/AI/Claude/TEKKEN/client/public/assets/models/$1.glb" --overrides "$T/overrides/$1.json" --seams "$T/dbg2" > "$T/dbg2/$1.quick.log" 2>&1
+grep -E "^@@ (tailoring|standing|shoulder|seams|seam normals|  seam|  open|inside|finger|exported|ok|warn)|Error|Traceback|File \"|line [0-9]+" "$T/dbg2/$1.quick.log"
 python - "$1" <<'PY'
 import hashlib, io, json, sys
 p = 'G:/AI/Claude/TEKKEN/client/public/assets/models/index.json'

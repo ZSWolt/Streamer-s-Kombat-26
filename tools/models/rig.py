@@ -15,7 +15,11 @@ Overrides JSON (optional):
   {"joints": {"armL": [x, y, z]},      joint positions on the sculpt (glTF space, model height = 1)
    "parts": {"tripo_part_5": "armR"},  part classes (torso torso2 head headacc armL armR leg shoe acc)
    "headYaw": 0, "headPitch": 0,       how the sculpted head is turned (radians)
-   "hipWidth": 0.13, "upperArm": 0.9}  anatomical priors (see fit)
+   "hipWidth": 0.13, "upperArm": 0.9,  anatomical priors (see fit)
+   "headScale": 1.15,                  tailoring (see there): a bigger head,
+   "armLength": 1.1, "armThick": 1.04, longer (and a little thicker) arms; by default arms are let out to a span
+                                       of 0.97 of the height when they came out shorter than 0.94,
+   "slim": 0.85}                       a narrower trunk
 """
 import heapq
 import json
@@ -27,6 +31,7 @@ import bmesh
 import bpy
 import numpy as np
 from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
 from mathutils.kdtree import KDTree
 
 argv = sys.argv[sys.argv.index('--') + 1:]
@@ -116,12 +121,12 @@ class Part:
         m = meta['parts'][o.name]
         self.o, self.name = o, o.name
         self.cls, self.side = m['cls'], m['side']
-        self.s = SAMPLES[o.name].astype(np.float64)
+        self.s = SAMP[o.name]
         self.lo, self.hi, self.c = self.s.min(0), self.s.max(0), self.s.mean(0)
 
 
-def dominant_uv(o, bm, uv, faces):
-    """UV of a texel showing the part's most common colour."""
+def texture_pixels(o):
+    """The colour texture of a part as an array (rows, columns, rgb), or None."""
     mat = o.data.materials[0] if o.data.materials else None
     img = None
     if mat and mat.use_nodes:
@@ -134,7 +139,15 @@ def dominant_uv(o, bm, uv, faces):
     w, h = img.size
     px = np.empty(w * h * 4, dtype=np.float32)
     img.pixels.foreach_get(px)
-    px = px.reshape(h, w, 4)[:, :, :3]
+    return px.reshape(h, w, 4)[:, :, :3]
+
+
+def dominant_uv(o, bm, uv, faces):
+    """UV of a texel showing the part's most common colour."""
+    px = texture_pixels(o)
+    if px is None:
+        return None
+    h, w = px.shape[:2]
     uvs = np.array([l[uv].uv[:] for f in list(faces)[::7] for l in f.loops])
     if len(uvs) < 10:
         return None
@@ -145,8 +158,12 @@ def dominant_uv(o, bm, uv, faces):
     mode = np.bincount(key, minlength=512).argmax()
     pick = np.nonzero(key == mode)[0]
     best = pick[int(np.argmin(np.linalg.norm(col[pick] - col[pick].mean(0), axis=1)))]
+    o['domcol'] = [float(c) for c in col[best]]
     from mathutils import Vector as V2
     return V2((float(uvs[best, 0]), float(uvs[best, 1])))
+
+
+DEBUG_HOLES = bool(opt('--dbgholes'))
 
 
 def fill_holes(o):
@@ -159,13 +176,66 @@ def fill_holes(o):
     mark = bm.verts.layers.int.new('patch')  # (a new layer invalidates element references: make it first)
     rimn = bm.verts.layers.float_vector.new('rimn')
     lid = bm.faces.layers.int.new('lid')  # the faces made here, so a later stage can take some away again
+    lidc = bm.faces.layers.int.new('lidc')  # ... and which patch each of them is part of
     uv = bm.loops.layers.uv.active
     n_rim = sum(1 for e in bm.edges if e.is_boundary)
     if not n_rim:
         bm.free()
         return 0
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)  # a rim can only be walked if the faces around it agree
+    hand = o.name in meta.get('fingers', {})
+    leg = meta['parts'][o.name]['cls'] == 'leg'
+    # crumbs: a few triangles on their own, left over where the sculpt was cut or thinned out, are no part of
+    # anything - they hang in the air by a hand or a hem - and cannot be closed either
+    seen_c, crumbs = set(), []
+    for f0 in bm.faces:
+        if f0 in seen_c:
+            continue
+        piece, front = [], [f0]
+        seen_c.add(f0)
+        while front:
+            f = front.pop()
+            piece.append(f)
+            for e in f.edges:
+                for g in e.link_faces:
+                    if g not in seen_c:
+                        seen_c.add(g)
+                        front.append(g)
+        if len(piece) < 24 and len(piece) < 0.01 * len(bm.faces):
+            crumbs += piece
+    if crumbs and len(crumbs) < len(bm.faces):
+        bmesh.ops.delete(bm, geom=crumbs, context='FACES')
+        loose = [v for v in bm.verts if not v.link_faces]
+        if loose:
+            bmesh.ops.delete(bm, geom=loose, context='VERTS')
+        print('@@ crumbs', o.name, len(crumbs), 'faces dropped', flush=True)
+    # A rim can only be walked if the faces around it agree which side is out. Making them agree is a guess for an
+    # open shell, and the guess is often "inside out" (a face, a trouser leg); so every connected piece is then
+    # turned back the way most of its faces were, which is the way the sculpt was made.
+    bm.faces.ensure_lookup_table()
+    was = [f.normal.copy() for f in bm.faces]
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     bm.normal_update()
+    bm.faces.ensure_lookup_table()
+    seen_f, turned = set(), 0
+    for f0 in bm.faces:
+        if f0.index in seen_f:
+            continue
+        piece, front = [], [f0]
+        seen_f.add(f0.index)
+        while front:
+            f = front.pop()
+            piece.append(f)
+            for e in f.edges:
+                for g in e.link_faces:
+                    if g.index not in seen_f:
+                        seen_f.add(g.index)
+                        front.append(g)
+        if sum((1.0 if f.normal.dot(was[f.index]) > 0 else -1.0) * f.calc_area() for f in piece) < 0:
+            bmesh.ops.reverse_faces(bm, faces=piece)
+            turned += len(piece)
+    if turned:
+        bm.normal_update()
+        print('@@ turned', o.name, turned, 'faces of', len(bm.faces), 'back the right way out', flush=True)
     for e in bm.edges:  # the open rims, and which way the surface faces there (see Surface.rim_pairs)
         if e.is_boundary:
             for v in e.verts:
@@ -198,7 +268,9 @@ def fill_holes(o):
             try:
                 caps.append(bm.faces.new(ring))
                 return 1
-            except ValueError:
+            except ValueError as err:
+                if DEBUG_HOLES:
+                    print('@@ could not close a ring of', len(ring), 'in', o.name, ':', err, flush=True)
                 return 0
 
         for start in list(nxt):
@@ -223,6 +295,17 @@ def fill_holes(o):
         if not made:
             break
         bmesh.ops.triangulate(bm, faces=caps)
+    # A rim that could not be walked (its faces do not agree which side is out: a hand whose finger welds were
+    # closed above, a part folded onto itself) is left to Blender's own hole filler.
+    rest_ = [e for e in bm.edges if e.is_boundary]
+    if len(rest_) >= 3:
+        try:
+            got = bmesh.ops.holes_fill(bm, edges=rest_, sides=0)['faces']
+            if got:
+                bmesh.ops.triangulate(bm, faces=got)
+                print('@@ holes', o.name, 'rim edges that could not be walked:', len(rest_), '->', sum(1 for e in bm.edges if e.is_boundary), flush=True)
+        except Exception as err:
+            print('@@ warn: holes_fill failed on', o.name, err, flush=True)
     capset = {f for f in bm.faces if f not in old}
     if uv:
         # the rim itself is no guide to colour (it lay in a crease, so its texture is baked shadow):
@@ -247,12 +330,64 @@ def fill_holes(o):
             bmesh.ops.smooth_vert(bm, verts=inside, factor=0.5, use_axis_x=True, use_axis_y=True, use_axis_z=True)
     for v in inside:  # patch vertices take their skin weights from the rim (see compute_weights)
         v[mark] = 1
-    for f in capset:
-        if f.is_valid:
-            f[lid] = 1
+    # Two kinds of patch. One closes an opening - a sleeve, a hem, a collar, the end of an arm inside its sleeve: the
+    # cloth ends at its rim, and the surface there faces across the patch. What shows of it is the inside of a
+    # garment, and it is drawn dark (see inside_materials). The other mends a gap in a surface that carries on
+    # across it; the surface at its rim faces the way the patch does, and it is drawn as that surface.
+    bm.normal_update()
+    todo = {f for f in capset if f.is_valid}
+    n_open = 0
+    comps_ = []
+    while todo:
+        comp, front = [], [todo.pop()]
+        while front:
+            f = front.pop()
+            comp.append(f)
+            for e in f.edges:
+                for g in e.link_faces:
+                    if g in todo:
+                        todo.discard(g)
+                        front.append(g)
+        nc = Vector((0.0, 0.0, 0.0))
+        for f in comp:
+            nc += f.normal * f.calc_area()
+        kind = 1
+        rims = {v for f in comp for v in f.verts if v[rimn].length > 0.5}
+        # (a hole smaller than a thumbnail is a crack in a surface - between two fingers, behind an ear - and no
+        # opening of anything)
+        if nc.length > 1e-12 and rims and sum(f.calc_area() for f in comp) > (0.012 * H) ** 2:
+            nc.normalize()
+            if sum(abs(v[rimn].normalized().dot(nc)) for v in rims) / len(rims) < 0.8:
+                kind = 2
+                # (trousers open upwards, at the waist, and downwards, at the cuffs. A hole in the side of a leg -
+                # the whole inside of a thigh, where it lay against the other one - is cloth that was never
+                # sculpted, and is mended as cloth)
+                if leg and abs(nc.z) < 0.6:
+                    kind = 1
+                else:
+                    n_open += len(comp)
+        for f in comp:
+            f[lid] = kind
+            f[lidc] = len(comps_) + 1
+        comps_.append((sum(f.calc_area() for f in comp), comp, kind))
+    if hand:
+        # a hand has no openings: it ends at a cut through the wrist or the palm (skin on both sides), and every
+        # other hole in it is a tear where a finger was welded back on
+        for area_, comp, kind in comps_:
+            if kind == 2:
+                for f in comp:
+                    f[lid] = 1
+                n_open -= len(comp)
+    # The edge between a patch and the surface it closes is a hard one: the surface is shaded as if it went on (it
+    # does, into the next part), not as if it turned the corner into its own lid.
+    for e in bm.edges:
+        lf_ = e.link_faces
+        if len(lf_) == 2 and (lf_[0] in capset) != (lf_[1] in capset):
+            e.smooth = False
     n = len(capset)
     left = sum(1 for e in bm.edges if e.is_boundary)
-    print('@@ holes', o.name, 'rim edges', n_rim, '->', left, 'patch faces', n, flush=True)
+    print('@@ holes', o.name, 'rim edges', n_rim, '->', left, 'patch faces', n, 'of them closing openings', n_open,
+          'colour', [round(float(x), 2) for x in o.get('domcol', [])], flush=True)
     bm.normal_update()
     bm.to_mesh(me)
     bm.free()
@@ -260,13 +395,250 @@ def fill_holes(o):
     return n
 
 
+# ------------------------------------------------------------------ tailoring
+# A sculpt is taken as it comes, except for what a tailor would do before the fitting: a head made too small for
+# its body is scaled up about the collar, arms that came out short are let out, a shirt cut for someone half as
+# wide again is taken in. Each is one smooth move of space applied to every part alike (the meshes, their samples,
+# the places where parts meet), so nothing comes apart at a seam.
+SAMP = {n: SAMPLES[n].astype(np.float64) for n in meta['parts']}
+PCLS = {n: m['cls'] for n, m in meta['parts'].items()}
+
+
+def warp(fn):
+    """Move every point of the sculpt: fn(points, class of their part) -> points."""
+    for o in scene.objects:
+        if o.type == 'MESH':
+            set_verts_gl(o, fn(verts_gl(o), PCLS[o.name]))
+            SAMP[o.name] = fn(SAMP[o.name], PCLS[o.name])
+    for f in meta['interfaces']:
+        if f['a'] not in PCLS or f['b'] not in PCLS:  # (a finger piece that was welded onto its hand)
+            continue
+        both = PCLS[f['a']] in ('head', 'headacc') and PCLS[f['b']] in ('head', 'headacc')
+        f['c'] = fn(np.array([f['c']], dtype=np.float64), 'head' if both else 'torso')[0].tolist()
+
+
+def neck_of(col, cx):
+    """The neck in a cloud of the head, the neck and the top of the trunk: the level at which the column over the
+    collar is narrowest (about half way up the neck), and the middle of the neck, front to back, at that level."""
+    col = col[np.abs(col[:, 0] - cx) < 0.16 * H]
+    top = float(col[:, 1].max())
+    best = None
+    for y in np.arange(0.76 * H, top - 0.08 * H, 0.004 * H):
+        b = col[(col[:, 1] >= y) & (col[:, 1] < y + 0.008 * H)]
+        if len(b) < 15:
+            continue
+        w = float(np.percentile(b[:, 0], 98) - np.percentile(b[:, 0], 2))
+        if best is None or w < best[0]:
+            best = (w, y + 0.004 * H, float((np.percentile(b[:, 2], 5) + np.percentile(b[:, 2], 95)) / 2))
+    return (best[1], best[2]) if best else (0.85 * H, float(np.median(col[:, 2])))
+
+
+NECK_DOWN, NECK_UP = 0.02, 0.03  # the neck turns between this far below its narrowest level and this far above it
+
+
+def tailor():
+    cat = lambda *cls: np.concatenate([SAMP[n] for n, c in PCLS.items() if c in cls])
+    trunk = cat('torso')
+    cx = float(np.median(trunk[:, 0]))
+    arms = {s: np.concatenate([SAMP[n] for n, m in meta['parts'].items() if m['cls'] == 'arm' and m['side'] == s] or [np.zeros((0, 3))]) for s in 'LR'}
+    if not len(arms['L']) or not len(arms['R']):
+        return
+    both = np.concatenate([arms['L'], arms['R']])
+    t_pose = float(np.abs(both[:, 0] - cx).max()) > 0.33 * H and float(both[:, 1].mean()) > 0.62 * H
+    if not t_pose and (OVR.get('slim') or OVR.get('armLength')):
+        log('warn: slim / armLength are for sculpts that stand with their arms out; ignored')
+    x0 = OVR.get('shoulderX', 0.108) * H
+    # ---- a narrower trunk. The middle (collar, neck, the print on the chest) stays as it is; from there out to
+    # the side seams the shirt is taken in, and the arms come in with the seams. Below the hem nothing changes.
+    k = float(OVR.get('slim', 1.0))
+    if t_pose and k < 0.999:
+        band = trunk[(trunk[:, 1] > 0.6 * H) & (trunk[:, 1] < 0.74 * H)]
+        xs = float(np.percentile(np.abs(band[:, 0] - cx), 97))
+        hem = float(np.percentile(trunk[:, 1], 1))
+        b_ = 0.06 * H  # the taking-in grows from nothing at the middle to its full rate this far out
+        rate = (1 - k) * xs / (xs - b_ / 2)
+
+        def slim(pts, cls):
+            if cls in ('head', 'headacc'):
+                return pts
+            u = np.abs(pts[:, 0] - cx)
+            v_ = np.minimum(u, xs)
+            f = u - rate * np.where(v_ < b_, v_ * v_ / (2 * b_), v_ - b_ / 2)
+            g = smooth(hem - 0.06 * H, hem - 0.01 * H, pts[:, 1])
+            out = np.array(pts, dtype=np.float64)
+            out[:, 0] = pts[:, 0] + np.sign(pts[:, 0] - cx) * (f - u) * g
+            return out
+
+        warp(slim)
+        log(f'tailoring: trunk taken in to {k:.2f} of its width (side seams at {xs / H:.3f}H -> {k * xs / H:.3f}H)')
+    # ---- longer arms: everything beyond the shoulder joints is let out along the arm, and thickened a little
+    # about the arm's own middle so that a longer arm is not a thinner-looking one. An arm's length is measured
+    # along the arm (one held half way down reaches less far sideways and is no shorter for it).
+    geo = {}
+    for s, sg in (('L', 1.0), ('R', -1.0)):
+        a = np.concatenate([SAMP[n] for n, m in meta['parts'].items() if m['cls'] == 'arm' and m['side'] == s])
+        a = a[sg * (a[:, 0] - cx) > x0]
+        if len(a) < 50:
+            break
+        c = a.mean(0)
+        d = np.linalg.svd(a - c, full_matrices=False)[2][0]
+        d = d * (sg if d[0] > 0 else -sg)  # outwards along the arm
+        p0 = c + d * ((cx + sg * x0 - c[0]) / d[0])  # where the arm's line passes the shoulder joint
+        geo[s] = (p0, d, float(((a - p0) @ d).max()))
+    reach = 2 * x0 + geo['L'][2] + geo['R'][2] if len(geo) == 2 else H  # the span these arms would have held straight out
+    log(f'tailoring: arms reach {reach / H:.3f}H' + (f' ({geo["L"][2] / H:.3f} / {geo["R"][2] / H:.3f} from the shoulder joints)' if len(geo) == 2 else ''))
+    k = OVR.get('armLength')
+    if k is None:
+        k = float(np.clip((0.97 * H - 2 * x0) / max(reach - 2 * x0, 1e-6), 1.0, 1.22)) if t_pose and reach < 0.94 * H else 1.0
+    if t_pose and len(geo) == 2 and abs(k - 1) > 0.005:
+        kr = float(OVR.get('armThick', 1 + 0.35 * (k - 1)))
+
+        def let_out(pts, cls):
+            if cls in ('head', 'headacc', 'leg', 'shoe'):
+                return pts
+            out = np.array(pts, dtype=np.float64)
+            for s, sg in (('L', 1.0), ('R', -1.0)):
+                p0, d, _ = geo[s]
+                t = (pts - p0) @ d
+                sel = (t > 0) & (sg * (pts[:, 0] - cx) > 0)
+                if not sel.any():
+                    continue
+                q = pts[sel] - p0 - np.outer(t[sel], d)  # from the arm's line to the point
+                # (only what lies about the arm: the side of a wide shirt out here is not arm)
+                near = 1 - smooth(0.1 * H, 0.16 * H, np.linalg.norm(q, axis=1))
+                thick = 1 + (kr - 1) * smooth(0.02 * H, 0.1 * H, t[sel]) * near
+                out[sel] = p0 + np.outer(t[sel] * (1 + (k - 1) * near), d) + q * thick[:, None]
+            return out
+
+        warp(let_out)
+        log(f'tailoring: arms let out x{k:.3f} (they reached {reach / H:.3f}H), thickness x{kr:.3f}')
+    # ---- a bigger head: the whole head group about the base of the neck
+    k = float(OVR.get('headScale', 1.0))
+    if abs(k - 1) > 0.005:
+        yn, zn = neck_of(cat('head', 'headacc', 'torso', 'torso2'), cx)
+        c0 = np.array([cx, yn - NECK_DOWN * H, zn])
+
+        def bigger(pts, cls):
+            if cls in ('head', 'headacc'):
+                return c0 + (pts - c0) * k
+            if cls == 'torso2':  # skin that runs on up the neck into the face is part of the head it belongs to
+                h = smooth(c0[1], c0[1] + (NECK_DOWN + NECK_UP) * H, pts[:, 1]) * (1 - smooth(0.08 * H, 0.12 * H, np.abs(pts[:, 0] - c0[0])))
+                return pts + (pts - c0) * ((k - 1) * h)[:, None]
+            return pts
+
+        warp(bigger)
+        log(f'tailoring: head x{k:.3f} about the base of the neck ({c0[0] / H:+.3f}, {c0[1] / H:.3f}, {c0[2] / H:+.3f})')
+
+
+def drop_cords(o):
+    """The cords of a waistband: thin, long, hanging things sculpted standing a little way off the cloth, and grown
+    into it wherever they touch it. There is no good way to skin them. Skinned like the cloth behind them they arch
+    from the waist over a lifted thigh like the handle of a basket and stretch between two legs; given whole to
+    the thigh they lie on, they stand out of a kick like rods; hung from the pelvis, they pull spikes out of the
+    cloth they are grown into. A cord needs a simulation, and this game has none: so they are taken off, and the
+    cloth is mended where they were (fill_holes). They are found by what they are: a finger's breadth through, many
+    times longer than wide, round, and hanging down. -> how many, or 'all' if the part is nothing but a cord."""
+    me = o.data
+    n = len(me.vertices)
+    if n < 50:
+        return 0
+    bvh = BVHTree.FromObject(o, bpy.context.evaluated_depsgraph_get())
+    thick, nor = np.full(n, np.inf), np.zeros((n, 3))
+    for v in me.vertices:
+        d = -v.normal
+        nor[v.index] = v.normal
+        hit = bvh.ray_cast(v.co + d * (0.0005 * H), d, 0.05 * H)
+        if hit[0] is not None and hit[1].dot(d) > 0.2:  # out through the far side
+            thick[v.index] = hit[3]
+    thin = thick < 0.015 * H
+    if thin.sum() < 60:
+        return 0
+    e = np.zeros(len(me.edges) * 2, dtype=np.int32)
+    me.edges.foreach_get('vertices', e)
+    e = e.reshape(-1, 2)
+    e = e[thin[e[:, 0]] & thin[e[:, 1]]]
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for a, b in e.tolist():
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+    groups = {}
+    for i in np.nonzero(thin)[0]:
+        groups.setdefault(find(int(i)), []).append(int(i))
+    co = verts_gl(o)
+    cord, k = np.zeros(n, dtype=bool), 0
+    for g in groups.values():
+        if len(g) < 60:
+            continue
+        g = np.array(g)
+        c = co[g] - co[g].mean(0)
+        ax = np.linalg.svd(c, full_matrices=False)[2]
+        ext = [float(np.ptp(c @ a_)) for a_ in ax]
+        if ext[0] >= 0.08 * H and ext[1] <= 0.35 * ext[0] and abs(ax[0][1]) > 0.7 and float(np.linalg.norm(nor[g].mean(0))) < 0.35:
+            k += 1
+            cord[g] = True
+            log(f'cord taken off {o.name}: {len(g)} vertices, {ext[0] / H:.3f}H long, at x {co[g, 0].mean() / H:+.3f}, y {co[g, 1].min() / H:.3f}..{co[g, 1].max() / H:.3f}')
+    if not k:
+        return 0
+    if cord.sum() > 0.6 * n:
+        return 'all'
+    tree = kd(co[cord])
+    keep = np.array([tree.find(Vector(x))[2] > 0.012 * H for x in SAMP[o.name]])
+    if keep.sum() > 50:
+        SAMP[o.name] = SAMP[o.name][keep]
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bm.verts.ensure_lookup_table()
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if any(cord[v.index] for v in f.verts)], context='FACES')
+    loose = [v for v in bm.verts if not v.link_faces]
+    if loose:
+        bmesh.ops.delete(bm, geom=loose, context='VERTS')
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    return k
+
+
+tailor()
 for o in [o for o in scene.objects if o.type == 'MESH']:
+    if meta['parts'][o.name]['cls'] == 'leg' and OVR.get('dropCords', True) and drop_cords(o) == 'all':
+        for d_ in (meta['parts'], SAMP, PCLS):
+            d_.pop(o.name, None)
+        bpy.data.objects.remove(o)
+        continue
     fill_holes(o)
 P = [Part(o) for o in sorted([o for o in scene.objects if o.type == 'MESH'], key=lambda o: o.name)]
 byname = {p.name: p for p in P}
 IF = {}
 for f in meta['interfaces']:
     IF[(f['a'], f['b'])] = IF[(f['b'], f['a'])] = {'c': np.array(f['c']), 'r': f['r'], 'n': f['n']}
+
+
+def seams_of():
+    """Where the sculpt was cut: rim vertices of one part lying on rim vertices of another. They were one point
+    before the cut and must stay one in every pose; the model check (client/src/dev/qa.ts) holds the rig to it."""
+    out = []
+    rims = {q.name: rim_of(q)[0] for q in P}
+    pos = {q.name: verts_gl(q.o) for q in P}
+    for i_, a_ in enumerate(P):
+        for b_ in P[i_ + 1:]:
+            if not IF.get((a_.name, b_.name)) or not len(rims[a_.name]) or not len(rims[b_.name]):
+                continue
+            if 'shoe' in (a_.cls, b_.cls) and 'leg' in (a_.cls, b_.cls):
+                continue  # a cuff over a shoe is no cut: the ankle between them was never sculpted
+            tb = kd(pos[b_.name][rims[b_.name]])
+            for u in rims[a_.name]:
+                _, j, dd = tb.find(Vector(pos[a_.name][u]))
+                if dd < 0.006 * H:
+                    out.append((a_.name, int(u), b_.name, int(rims[b_.name][j])))
+    return out
 
 
 def iface(a, b):
@@ -333,7 +705,13 @@ def rim_of(part):
     if 'rimn' in me.attributes:
         me.attributes['rimn'].data.foreach_get('vector', n)
     n = to_gl(n.reshape(-1, 3)).astype(np.float64)
-    idx = np.nonzero(np.linalg.norm(n, axis=1) > 0.5)[0]
+    on = np.linalg.norm(n, axis=1) > 0.5
+    if 'patch' in me.attributes and len(me.attributes['patch'].data) == len(on):
+        # (where two holes touched, the rim vertex was split in two, and the half that only patches hang on is patch)
+        flag = np.zeros(len(on), dtype=np.int32)
+        me.attributes['patch'].data.foreach_get('value', flag)
+        on &= flag == 0
+    idx = np.nonzero(on)[0]
     return idx, n[idx]
 
 
@@ -539,6 +917,112 @@ def euler_xyz(x, y, z):  # three.js 'XYZ' order: R = Rx · Ry · Rz
     return rot_x(x) @ rot_y(y) @ rot_z(z)
 
 
+def snap_cuts():
+    """Where the sculpt was cut into parts the two rims were one line. Each part was then thinned out on its own, and
+    the two rims are now two different zigzags along that line, with hair-line gaps and overlaps between them. Put
+    every rim vertex onto the other part's rim (first one side, then the other, onto what the first has become):
+    the two zigzags become one again, to within what the eye can see."""
+    moved = 0
+    rims = {q.name: rim_of(q)[0] for q in P}
+    for i_, a_ in enumerate(P):
+        for b_ in P[i_ + 1:]:
+            if not IF.get((a_.name, b_.name)) or not len(rims[a_.name]) or not len(rims[b_.name]):
+                continue
+            if 'shoe' in (a_.cls, b_.cls) and 'leg' in (a_.cls, b_.cls):
+                continue
+            for src, dst in ((a_, b_), (b_, a_)):
+                vs, vd = verts_gl(src.o), verts_gl(dst.o)
+                rd = rims[dst.name]
+                on_rim = np.zeros(len(vd), dtype=bool)
+                on_rim[rd] = True
+                e = np.zeros(len(dst.o.data.edges) * 2, dtype=np.int32)
+                dst.o.data.edges.foreach_get('vertices', e)
+                e = e.reshape(-1, 2)
+                e = e[on_rim[e[:, 0]] & on_rim[e[:, 1]]]
+                at = {}
+                for k_, (p0, p1) in enumerate(e.tolist()):
+                    at.setdefault(p0, []).append(k_)
+                    at.setdefault(p1, []).append(k_)
+                tree = kd(vd[rd])
+                hit = False
+                for u in rims[src.name]:
+                    _, j, dd = tree.find(Vector(vs[u]))
+                    if dd > 0.006 * H:
+                        continue
+                    w = int(rd[j])
+                    best, to = dd, vd[w]
+                    for k_ in at.get(w, []):
+                        p0, p1 = vd[e[k_, 0]], vd[e[k_, 1]]
+                        ab = p1 - p0
+                        q = p0 + ab * float(np.clip(((vs[u] - p0) @ ab) / max(float(ab @ ab), 1e-18), 0.0, 1.0))
+                        d2 = float(np.linalg.norm(vs[u] - q))
+                        if d2 < best:
+                            best, to = d2, q
+                    vs[u] = to
+                    moved += 1
+                    hit = True
+                if hit:
+                    set_verts_gl(src.o, vs)
+    return moved
+
+
+log('rim vertices put onto the rim of the part they were cut from:', snap_cuts())
+SEAMS = seams_of()
+
+
+def lids_at_cuts():
+    """A patch that closes a part where it was cut from the next part is no opening: the surface goes on there, in
+    the other part. The two never meet quite point for point (each part was thinned out on its own), and what shows
+    through the hair-line gaps between them should be more of the same surface, not the dark of an inside. Only a
+    rim with nothing against it - a hem, a cuff, a collar, the end of a sleeve - is an opening."""
+    at_cut = {}
+    for a_, u_, b_, w_ in SEAMS:
+        at_cut.setdefault(a_, set()).add(u_)
+        at_cut.setdefault(b_, set()).add(w_)
+    turned = 0
+    for p in P:
+        me = p.o.data
+        nf = len(me.polygons)
+        if 'lidc' not in me.attributes or len(me.attributes['lidc'].data) != nf:
+            continue
+        lid_, comp_ = np.zeros(nf, dtype=np.int32), np.zeros(nf, dtype=np.int32)
+        me.attributes['lid'].data.foreach_get('value', lid_)
+        me.attributes['lidc'].data.foreach_get('value', comp_)
+        if p.cls == 'leg':
+            # Half a pair of trousers has one rim: round the waist and down the middle, and one patch closes it. The
+            # part of the patch that lies across the waist is the opening; the part that stands in the middle, the
+            # whole inside of the thigh where it lay against the other one, is cloth that was never sculpted, and
+            # is drawn as cloth - it is what shows of the leg from the other side in every kick.
+            pn = np.zeros(nf * 3, dtype=np.float32)
+            me.polygons.foreach_get('normal', pn)
+            wall = (lid_ == 2) & (np.abs(pn.reshape(-1, 3)[:, 2]) < 0.6)
+            lid_[wall] = 1
+            turned += int(wall.sum())
+            me.attributes['lid'].data.foreach_set('value', lid_)
+        if p.name not in at_cut:
+            continue
+        lv = np.zeros(len(me.loops), dtype=np.int32)
+        me.loops.foreach_get('vertex_index', lv)
+        lt = np.zeros(nf, dtype=np.int32)
+        me.polygons.foreach_get('loop_total', lt)
+        face_of = np.repeat(np.arange(nf), lt)
+        rim = np.zeros(len(me.vertices), dtype=bool)
+        rim[rim_of(p)[0]] = True
+        cut = np.zeros(len(me.vertices), dtype=bool)
+        cut[list(at_cut[p.name])] = True
+        for c in np.unique(comp_[lid_ == 2]):
+            faces = (comp_ == c) & (lid_ == 2)
+            vs = np.unique(lv[faces[face_of]])
+            vs = vs[rim[vs]]
+            if len(vs) and cut[vs].mean() > 0.6:
+                lid_[faces] = 1
+                turned += int(faces.sum())
+        me.attributes['lid'].data.foreach_set('value', lid_)
+    return turned
+
+
+log('patches at cuts between parts, drawn as the surface they close:', lids_at_cuts(), 'faces')
+
 # ------------------------------------------------------------------ fit the skeleton to the sculpt
 J = {}
 fn = iface(torso, head)
@@ -728,6 +1212,8 @@ if STANDING:
         if len(band) < 20:
             continue
         if len(mid_) < 4 or np.ptp(mid_[:, 2]) < 0.85 * np.ptp(band[:, 2]):
+            if crotch is None:
+                continue  # (the ragged top edge of a waistband says nothing: the search starts below it)
             break
         crotch = yb * H
     if crotch is None:
@@ -747,9 +1233,30 @@ if STANDING:
     pelvis_up, lat, HIP_W = np.array([0, 1.0, 0]), np.array([1.0, 0, 0]), 2 * half
     J['thighL'], J['thighR'] = pelvis + lat * half, pelvis - lat * half
     log(f'standing model: neck was {(J["neck"][0] - mx) / H:+.3f} off the centre line')
-    for b_ in ('neck', 'head'):  # a body standing square has its neck on the centre line
-        J[b_] = np.array([mx, J[b_][1], J[b_][2]])
+    # The neck of a body standing square is on its centre line. It turns over its own length: the neck joint at its
+    # base, the head joint where the skull sits on it (see up_the_neck for what turns with which).
+    yn_, zn_ = neck_of(np.concatenate([p.s for p in P if p.cls in ('head', 'headacc', 'torso', 'torso2')]), mx)
+    J['neck'] = np.array([mx, yn_ - NECK_DOWN * H, zn_])
+    J['head'] = np.array([mx, yn_ + NECK_UP * H, zn_])
+    log(f'standing model: neck narrowest at {yn_ / H:.3f}H, {zn_ / H:+.3f} front to back')
     log(f'standing model: fork of the legs at {crotch / H:.3f}, hips at {pelvis[1] / H:.3f}, {half / H:.3f} either side')
+    FORK_DROP = float(pelvis[1] - crotch)  # how far below the hip joints the trousers fork
+    # Two legs of a pair of trousers (or of wide shorts) that touch below the fork were never one surface, however
+    # the sculpt was cut: each is its own tube, and the two part company with every step. They are not welded.
+    _n = len(SEAMS)
+    _pos = {}
+    _keep = []
+    for a_, u_, b_, w_ in SEAMS:
+        pa, pb = byname[a_], byname[b_]
+        if pa.cls == 'leg' and pb.cls == 'leg' and (pa.c[0] - mx) * (pb.c[0] - mx) < 0 and min(abs(pa.c[0] - mx), abs(pb.c[0] - mx)) > 0.02 * H:
+            if a_ not in _pos:
+                _pos[a_] = verts_gl(pa.o)
+            if float(_pos[a_][u_][1]) < crotch - 0.01 * H:
+                continue
+        _keep.append((a_, u_, b_, w_))
+    SEAMS = _keep
+    if _n != len(SEAMS):
+        log(f'legs that touch below the fork are two tubes: {_n - len(SEAMS)} seam pairs between them let go')
 for _ in range(1):
     for s in 'LR':
         rows = leg_line[s]
@@ -938,12 +1445,14 @@ if STANDING and all(arm_straight.values()) and OVR.get('shoulderDrop', 0.025) > 
     # top of the trunk slopes down to them from the sides of the neck.
     drop_ = OVR.get('shoulderDrop', 0.025) * H
     cx_, sx_, sy_ = float(J['neck'][0]), float(abs(J['armL'][0] - J['neck'][0])), float(J['armL'][1])
-    ny_ = float(J['neck'][1])
 
-    def slope(pts, whole):
-        g_ = smooth(0.04 * H, sx_, np.abs(pts[:, 0] - cx_))
-        # (only the trunk below the neck: skin that runs on up the neck to the face stays where the head is)
-        f_ = 1.0 if whole else smooth(sy_ - 0.16 * H, sy_ - 0.04 * H, pts[:, 1]) * (1 - smooth(ny_, ny_ + 0.04 * H, pts[:, 1]))
+    def slope(pts):
+        """The same for every part (a sleeve and the shirt it grows out of must not come apart): nothing at the
+        middle, all of the drop from the shoulder joints outwards; and only down to the armpits, except out past
+        the joints, where everything is arm."""
+        u_ = np.abs(pts[:, 0] - cx_)
+        g_ = smooth(0.04 * H, sx_, u_)
+        f_ = np.maximum(smooth(sy_ - 0.16 * H, sy_ - 0.04 * H, pts[:, 1]), smooth(sx_, sx_ + 0.05 * H, u_))
         out_ = np.array(pts, dtype=np.float64)
         out_[:, 1] -= drop_ * g_ * f_
         return out_
@@ -951,14 +1460,72 @@ if STANDING and all(arm_straight.values()) and OVR.get('shoulderDrop', 0.025) > 
     for p in P:
         if p.cls in ('head', 'headacc', 'leg', 'shoe'):
             continue
-        set_verts_gl(p.o, slope(verts_gl(p.o), p.cls == 'arm'))
-        p.s = slope(p.s, p.cls == 'arm')
+        set_verts_gl(p.o, slope(verts_gl(p.o)))
+        p.s = slope(p.s)
     for s in 'LR':
         for b in ('arm', 'fore', 'hand', 'tip'):
             J[b + s] = J[b + s] - np.array([0.0, drop_, 0.0])
         hole[s]['c'] = hole[s]['c'] - np.array([0.0, drop_, 0.0])
-        arm_geo[s][0].pos = slope(arm_geo[s][0].pos, True)
+        arm_geo[s][0].pos = slope(arm_geo[s][0].pos)
     log(f'shoulders sloped: arms {drop_ / H:.3f}H lower, joints at {J["armL"][1] / H:.3f}H')
+
+# ---- shoulders of a standing sculpt: one rule for every part
+# Around a shoulder there are a shirt, its sleeve, the arm inside it, bare skin, the patches that close them - cut
+# into parts wherever Tripo happened to cut. If each part decides for itself how much it follows the arm, they
+# come apart where they meet (a sleeve that half-follows stands out like a wing; a bare shoulder tears out of its
+# armhole). So how much of a point goes with the arm is a matter of where the point is, and nothing else:
+#   * along the arm: nothing inside the shoulder joint, everything outside it, turning over within a few
+#     centimetres of the joint - a whole ring of the sleeve turns together, top and bottom;
+#   * except under the arm, inside the trunk's side: the armpit and the side below it stay with the trunk, and the
+#     underside of the sleeve is stretched between them like the web of a hand.
+UNIFIED = bool(STANDING and all(arm_straight.values()) and OVR.get('unifiedShoulders', True))
+SH = {}
+if UNIFIED:
+    cx_ = float(J['neck'][0])
+    trunk_ = np.concatenate([p.s for p in P if p.cls in ('torso', 'torso2')])
+    for s, sg in (('L', 1.0), ('R', -1.0)):
+        S = J['arm' + s]
+        ax = norm(J['fore' + s] - S)
+        dn = norm(np.array([0.0, -1.0, 0.0]) + ax * ax[1])  # straight down from the arm
+        # the trunk's side under the arm: its half-width a little below the armpit (the narrowest of three levels:
+        # one that still catches a sleeve reads wide)
+        wid = []
+        for dy in (0.12, 0.16, 0.2):
+            b_ = trunk_[(np.abs(trunk_[:, 1] - (S[1] - dy * H)) < 0.02 * H) & (sg * (trunk_[:, 0] - cx_) > 0)]
+            if len(b_) >= 20:
+                wid.append(float(np.percentile(sg * (b_[:, 0] - cx_), 97)))
+        side_ = min(wid) if wid else abs(S[0] - cx_) + 0.02 * H
+        # the armpit: the underside of the arm (or of its sleeve) just outside the trunk's side
+        pit = None
+        for src_ in (('arm',), ('torso', 'torso2', 'arm')):
+            q_ = np.concatenate([p.s for p in P if p.cls in src_ and (p.cls != 'arm' or p.side == s)])
+            rel = q_ - S
+            t_ = rel @ ax
+            depth = (rel - np.outer(t_, ax)) @ dn
+            out_ = sg * (q_[:, 0] - cx_) - side_
+            sel = (out_ > 0.005 * H) & (out_ < 0.035 * H) & (depth > 0) & (depth < 0.2 * H) & (t_ > -0.05 * H)
+            if sel.sum() >= 8:
+                pit = float(np.clip(np.percentile(depth[sel], 97), 0.035 * H, 0.12 * H))
+                break
+        if pit is None:
+            pit = 0.07 * H
+        pit = OVR.get('armpit', pit / H) * H
+        SH[s] = {'S': S, 'ax': ax, 'dn': dn, 'sg': sg, 'cx': cx_, 'side': side_, 'm': OVR.get('shoulderBlend', 0.03) * H,
+                 'd0': 0.35 * pit, 'd1': 0.9 * pit, 'deep0': 1.4 * pit, 'deep1': 2.2 * pit, 'web': OVR.get('armpitWeb', 0.05) * H}
+        log(f'shoulder {s}: trunk side {side_ / H:.3f}H from the middle (joint {abs(S[0] - cx_) / H:.3f}H), armpit {pit / H:.3f}H under the arm')
+
+
+def arm_share(v, sh):
+    """How much of each point goes with the arm rather than the trunk (0..1); see above."""
+    rel = v - sh['S']
+    t = rel @ sh['ax']
+    depth = (rel - np.outer(t, sh['ax'])) @ sh['dn']
+    inside = sh['side'] - sh['sg'] * (v[:, 0] - sh['cx'])  # how far inside the trunk's side
+    # (what hangs far below the arm is trunk wherever it is: the hem of a shirt that flares wider than its waist
+    # would fly up with the arm otherwise)
+    pit = smooth(sh['d0'], sh['d1'], depth) * np.maximum(smooth(-sh['web'], 0.0, inside), smooth(sh['deep0'], sh['deep1'], depth))
+    return smooth(-sh['m'], sh['m'], t) * (1 - pit)
+
 
 # ---- trunk: pelvis -> neck, bowed the way the back is (a rounded back straightens when the body stands up)
 J['hips'] = pelvis + pelvis_up * 0.015 * H
@@ -1223,15 +1790,36 @@ def capsule_term(v, caps, name):
 def up_the_neck(p, v, W, body, patch=None):
     """Skin that belongs to the body but runs up the neck (and, on some sculpts, on up the cheek): from the base of
     the skull up it is head and nothing else, so a face never comes apart; the neck below turns from one to the
-    other. The membranes that close such a part's openings go the same way."""
-    if p.cls != 'torso2':
+    other. The membranes that close such a part's openings go the same way.
+
+    On a standing sculpt the head's own parts do the same from the other end: whatever of them reaches down the
+    neck (a neck that came as a part of its own, a neck stub under the jaw, hair down the nape) stays with the
+    chest at the base of the neck, inside the collar, and turns over the length of the neck. A head that is rigid
+    all the way down swings its neck out of the collar whenever it tilts."""
+    hg = p.cls in ('head', 'headacc')
+    if p.cls != 'torso2' and not (hg and STANDING):
         return W
     ny, hy, cx = float(body['neck'][1]), float(body['head'][1]), float(body['neck'][0])
-    # (the neck joint is about level with the chin: the turn happens in the three centimetres below it)
-    col = 1 - smooth(0.08 * H, 0.12 * H, np.abs(v[:, 0] - cx))
-    # ... and the chin hangs lower than the nape: the further forward, the lower the head reaches
-    jaw = 0.9 * np.clip(v[:, 2] - float(body['neck'][2]) - 0.045 * H, 0.0, 0.06 * H)
-    k = smooth(ny - 0.025 * H - jaw, ny + 0.005 * H - jaw, v[:, 1]) * col
+    if STANDING:
+        # the chin hangs lower than the nape, and so do ears, headphones and whatever else is wider than a neck: the
+        # further forward or out to the side, the lower the head reaches
+        fwd = 0.9 * np.clip(v[:, 2] - float(body['neck'][2]) - 0.045 * H, 0.0, 0.06 * H)
+        out = 0.9 * np.clip(np.abs(v[:, 0] - cx) - 0.05 * H, 0.0, 0.06 * H) if hg else 0.0
+        low = np.maximum(fwd, out)
+        k = smooth(ny - low, hy - low, v[:, 1])
+        if not hg:
+            k = k * (1 - smooth(0.08 * H, 0.12 * H, np.abs(v[:, 0] - cx)))
+        if hg:  # all head so far: what is not head is the chest's
+            W = np.zeros_like(W)
+            W[:, BI['chest']] = 1 - k
+            W[:, BI['head']] = k
+            return W
+    else:
+        # (the neck joint is about level with the chin: the turn happens in the three centimetres below it)
+        col = 1 - smooth(0.08 * H, 0.12 * H, np.abs(v[:, 0] - cx))
+        # ... and the chin hangs lower than the nape: the further forward, the lower the head reaches
+        jaw = 0.9 * np.clip(v[:, 2] - float(body['neck'][2]) - 0.045 * H, 0.0, 0.06 * H)
+        k = smooth(ny - 0.025 * H - jaw, ny + 0.005 * H - jaw, v[:, 1]) * col
     W = W * (1 - k)[:, None]
     W[:, BI['head']] += k
     return W
@@ -1251,47 +1839,107 @@ def weights_for(p, v, body):
     if cand is None:
         names = [c for c in caps if c not in ('head', 'pelvis')]
         dn = [min(float(seg_dist(v.mean(0)[None, :], a, b)[0]) / r for a, b, r in caps[c]) for c in names]
-        W[:, BI[CAP_BONE.get(names[int(np.argmin(dn))], names[int(np.argmin(dn))])]] = 1
+        near = names[int(np.argmin(dn))]
+        if UNIFIED and near[-1] in 'LR' and near[:-1] in ('clav', 'sleeve', 'arm'):
+            # something worn at the shoulder rides on the arm or on the chest, whichever the place it is at does
+            near = ('arm' if float(arm_share(v.mean(0)[None, :], SH[near[-1]])[0]) > 0.5 else 'clav') + near[-1]
+        W[:, BI[CAP_BONE.get(near, near)]] = 1
         return W
     if len(cand) == 1:
         W[:, BI[cand[0]]] = 1
-        return W
+        if STANDING and p.cls == 'shoe':
+            # A shoe is the foot's up to the ankle; the collar of a high shoe is on the shin, as the trouser cuff over
+            # it is. Rigid all the way up, the collar gapes open behind the ankle every time the foot bends.
+            ya = float(body['caps']['foot' + p.side][0][0][1])
+            k = smooth(ya - 0.005 * H, ya + 0.03 * H, v[:, 1])
+            W[:, BI['foot' + p.side]] = 1 - k
+            W[:, BI['shin' + p.side]] = k
+        return up_the_neck(p, v, W, body)
     if p.name in GATE and p.cls == 'arm':
         s = p.side
         arc = np.where(np.isfinite(GATE[p.name][1]), GATE[p.name][1], 1e3)
         _, _, ge, gw, gt = arm_geo[s]
+        if UNIFIED:
+            # A straight arm needs no walk over its surface to know how far along it a point is (and the walk
+            # goes wrong where a sleeve lies against the body, or starts from a cut that is not round the arm):
+            # the distance along the line from the shoulder to the fingertips says it, the same for every part.
+            a_ = norm(J['tip' + s] - J['arm' + s])
+            arc = (v - J['arm' + s]) @ a_
+            ge, gw, gt = [float((J[k_ + s] - J['arm' + s]) @ a_) for k_ in ('fore', 'hand', 'tip')]
         lf, lh = gw - ge, gt - gw
         lu = max(ge, 0.05 * H)
         fore = smooth(ge - 0.3 * min(lu, lf), ge + 0.3 * min(lu, lf), arc)  # 0 above the elbow .. 1 below it
         hand = smooth(gw - 0.25 * min(lf, lh), gw + 0.25 * min(lf, lh), arc)
-        ca, cc = capsule_term(v, caps, 'arm' + s), capsule_term(v, caps, 'clav' + s)
-        cc = cc * (1 - smooth(ge - 0.6 * lu, ge - 0.1 * lu, arc))  # the shoulder's pull ends well above the elbow
         W[:, BI['hand' + s]] = hand
         W[:, BI['fore' + s]] = fore * (1 - hand)
-        W[:, BI['arm' + s]] = (1 - fore) * ca / (ca + cc)
-        W[:, BI['chest']] = (1 - fore) * cc / (ca + cc)
+        if UNIFIED:
+            # what is not arm is trunk, shared out between the trunk's bones the way the trunk's own parts are
+            ws = arm_share(v, SH[s])
+            tr = {c: capsule_term(v, caps, c) for c in ('hips', 'spine', 'chest', 'clav' + s)}
+            tot = sum(tr.values())
+            W[:, BI['arm' + s]] = (1 - fore) * ws
+            for c, w in tr.items():
+                W[:, BI[CAP_BONE.get(c, c)]] += (1 - fore) * (1 - ws) * w / tot
+        else:
+            ca, cc = capsule_term(v, caps, 'arm' + s), capsule_term(v, caps, 'clav' + s)
+            cc = cc * (1 - smooth(ge - 0.6 * lu, ge - 0.1 * lu, arc))  # the shoulder's pull ends well above the elbow
+            W[:, BI['arm' + s]] = (1 - fore) * ca / (ca + cc)
+            W[:, BI['chest']] = (1 - fore) * cc / (ca + cc)
     elif p.name in GATE and p.cls == 'leg':
         isL, arc = GATE[p.name]
         arc = np.where(np.isfinite(arc), arc, 1e3)
         dk = 0.035 * H
         up = np.ones(len(v))  # how much of the vertex lies above its own knee
+        if STANDING:  # straight legs, side by side: which leg, and how far up it, is a matter of where a point is
+            isL = v[:, 0] > float(body['hips'][0])
+            if isL.mean() > 0.9 or isL.mean() < 0.1:  # (one leg of a pair cut down the middle: all of it is that leg)
+                isL = np.full(len(v), bool(isL.mean() > 0.5))
         for s in 'LR':
             mine = isL if s == 'L' else ~isL
-            a_ = smooth(knee_arc[s] - dk, knee_arc[s] + dk, arc)
+            ka = knee_arc[s]
+            if STANDING:
+                foot_, knee_, hip_ = caps['shin' + s][0][1], caps['shin' + s][0][0], caps['thigh' + s][0][0]
+                l_ = norm(hip_ - foot_)
+                arc, ka = (v - foot_) @ l_, float((knee_ - foot_) @ l_)
+            a_ = smooth(ka - dk, ka + dk, arc)
             W[:, BI['shin' + s]] = np.where(mine, 1 - a_, 0.0)
             up = np.where(mine, a_, up)
-        terms = {c: capsule_term(v, caps, c) for c in ('pelvis', 'thighL', 'thighR')}
-        tot = sum(terms.values())
-        for c, w in terms.items():
-            W[:, BI[CAP_BONE.get(c, c)]] += up * w / tot
+        if STANDING:
+            # What is pelvis and what is thigh is told by a crease: the line that runs from the hip joint at the
+            # side down to the fork in the middle - the groin in front, the fold of the seat behind. Above it cloth
+            # stays with the pelvis, below it goes with its own leg, and it turns from one to the other over a
+            # hand's breadth. (Nearness to the bones gave the gusset to the thighs, half to each: lifted by a kick it
+            # came up with the leg, turned inside out. And it shared the inside of each thigh with the other leg all
+            # the way down, so whatever hung there - the cords of a waistband - was pulled apart between the two.)
+            hl_, hr_ = caps['thighL'][0][0], caps['thighR'][0][0]
+            half_, hy_, rt_ = 0.5 * abs(float(hl_[0] - hr_[0])), 0.5 * float(hl_[1] + hr_[1]), float(caps['thighL'][0][2])
+            fork_ = hy_ - max(FORK_DROP, 0.03 * H)
+            yc_ = fork_ + (hy_ - fork_) * np.clip(np.abs(v[:, 0] - float(body['hips'][0])) / (half_ + 0.6 * rt_), 0.0, 1.0)
+            th_ = smooth(yc_ + 0.02 * H, yc_ - 0.06 * H, v[:, 1])
+            W[:, BI['hips']] += up * (1 - th_)
+            W[:, BI['thighL']] += up * th_ * isL
+            W[:, BI['thighR']] += up * th_ * ~isL
+        else:
+            terms = {c: capsule_term(v, caps, c) for c in ('pelvis', 'thighL', 'thighR')}
+            tot = sum(terms.values())
+            for c, w in terms.items():
+                W[:, BI[CAP_BONE.get(c, c)]] += up * w / tot
     else:
         # a shirt's hem may follow the thighs, but only the part hanging below the hip joints
         below = smooth(0.03 * H, -0.05 * H, (v - body['hips']) @ body['up'])
         for c in cand:
+            if UNIFIED and c.startswith('sleeve'):
+                continue
             w = capsule_term(v, caps, c)
             if c.startswith('thigh'):
                 w = w * below
             W[:, BI[CAP_BONE.get(c, c)]] += w
+        if UNIFIED:
+            W /= W.sum(1, keepdims=True)
+            wl, wr = arm_share(v, SH['L']), arm_share(v, SH['R'])
+            W *= (1 - wl - wr)[:, None]
+            W[:, BI['armL']] += wl
+            W[:, BI['armR']] += wr
     W /= W.sum(1, keepdims=True)
     W = up_the_neck(p, v, W, body)
     W[W < 0.02] = 0
@@ -1339,9 +1987,58 @@ def compute_weights(get_verts, body):
                     np.add.at(acc, e[:, 1], W[e[:, 0]])
                     W[mask] = (acc / cnt)[mask]
                 W /= W.sum(1, keepdims=True)
-                W = up_the_neck(p, get_verts(p), W, body, mask.astype(np.float64))
+                if not STANDING:
+                    W = up_the_neck(p, get_verts(p), W, body, mask.astype(np.float64))
         out[p.name] = W
-    if STANDING and OVR.get('seamShoulders', True):
+    if STANDING:
+        # Small things (laces, a tag on a shoe, a pendant, a buckle) ride on what they lie on: the bone that the
+        # surface under them mostly follows - or, where that surface is shared between two bones (the collar of a
+        # shoe, a wrist), its weights point for point, so that they bend with it and never come away from it.
+        hv = [get_verts(q)[::2] for q in P if q.cls != 'acc']
+        hw = [out[q.name][::2] for q in P if q.cls != 'acc']
+        if hv:
+            hv, hw = np.concatenate(hv), np.concatenate(hw)
+            tree = kd(hv)
+            for p in P:
+                if p.cls != 'acc':
+                    continue
+                v = get_verts(p)
+                near = np.array([tree.find(Vector(x))[1] for x in v])
+                Wn = hw[near]
+                mean = Wn.mean(0)
+                if mean.max() >= 0.9:
+                    Wn = np.zeros_like(Wn)
+                    Wn[:, int(mean.argmax())] = 1
+                out[p.name] = Wn
+    if STANDING and SEAMS:
+        # The two sides of a cut were one point of the sculpt. They get one set of weights (the mean of what each
+        # side worked out for itself: a few millimetres apart, in a place where the weights change fast, the two
+        # can differ by a third), and so they stay one point in every pose.
+        key = {}
+        parent = []
+
+        def find(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        for a_, u_, b_, w_ in SEAMS:
+            for k_ in ((a_, u_), (b_, w_)):
+                if k_ not in key:
+                    key[k_] = len(parent)
+                    parent.append(len(parent))
+            ra, rb = find(key[(a_, u_)]), find(key[(b_, w_)])
+            if ra != rb:
+                parent[ra] = rb
+        groups = {}
+        for k_, i_ in key.items():
+            groups.setdefault(find(i_), []).append(k_)
+        for members in groups.values():
+            mean = sum(out[n_][i_] for n_, i_ in members) / len(members)
+            for n_, i_ in members:
+                out[n_][i_] = mean
+    if STANDING and not UNIFIED and OVR.get('seamShoulders', True):
         # A sleeve (or a bare arm) grows out of the body: where it meets the trunk it takes the trunk's own weights,
         # so the two sides of the seam move as one, and nothing opens between them or swings out of the armhole.
         # A few fingers' breadth along the arm it is all arm again.
@@ -1361,6 +2058,29 @@ def compute_weights(get_verts, body):
                     if k > 0:
                         W[i] = (1 - k) * W[i] + k * tw[j]
     return out
+
+
+RIM_RING = {}
+
+
+def rim_ring(p):
+    """How many edges each vertex is from a cut of its part (0 on the cut; 9 = far)."""
+    if p.name not in RIM_RING:
+        me = p.o.data
+        ring = np.full(len(me.vertices), 9, dtype=np.int32)
+        idx = rim_of(p)[0]
+        if len(idx):
+            e = np.zeros(len(me.edges) * 2, dtype=np.int32)
+            me.edges.foreach_get('vertices', e)
+            e = e.reshape(-1, 2)
+            ring[idx] = 0
+            for k in (1, 2):
+                near = (ring[e[:, 0]] == k - 1) | (ring[e[:, 1]] == k - 1)
+                for col in (0, 1):
+                    sel = e[near, col]
+                    ring[sel] = np.minimum(ring[sel], k)
+        RIM_RING[p.name] = ring
+    return RIM_RING[p.name]
 
 
 def write_groups(WW, colour=None):
@@ -1386,6 +2106,10 @@ def write_groups(WW, colour=None):
                     stats[bi] += w
         mix = o.vertex_groups.new(name='_mix')
         m = 1 - top[:, 0]
+        if STANDING:
+            # (the smoothing that follows a bend is done part by part: at a cut each side would be drawn in on its
+            # own and a crack would open along it, so the cut and the ring or two beside it are left as they are)
+            m = m * np.array([0.0, 0.4, 0.75] + [1.0] * 7)[rim_ring(p)]
         for i in np.nonzero(m > 0.02)[0]:
             mix.add([int(i)], float(min(1.0, m[i] * 2.5)), 'REPLACE')
         if colour:
@@ -1417,7 +2141,7 @@ if STANDING:
     # the arm down it would stand above the shoulder like a wing. Push it into the body, out of sight.
     for p in P:
         me_ = p.o.data
-        if p.cls != 'torso' or 'patch' not in me_.attributes:
+        if UNIFIED or p.cls != 'torso' or 'patch' not in me_.attributes:
             continue
         v_ = verts_gl(p.o)
         flag_ = np.zeros(len(v_), dtype=np.int32)
@@ -1439,6 +2163,19 @@ if STANDING:
 radii = measure_radii(J, pts_sculpt)
 log('radii (sculpt)', {k: round(v / H, 3) for k, v in radii.items()})
 W0 = compute_weights(lambda p: verts_gl(p.o), capsules(J, head_top, radii, hole, pelvis_up))
+verts0 = {p.name: verts_gl(p.o) for p in P}
+if SEAMS:
+    # two sides of a cut that do not have the same weights will come apart in some pose
+    dw = np.array([float(np.abs(W0[a_][u_] - W0[b_][w_]).max()) for a_, u_, b_, w_ in SEAMS])
+    log(f'seams: {len(SEAMS)} vertex pairs across cuts; weights differ by more than 0.15 at {int((dw > 0.15).sum())}, worst {dw.max():.2f}')
+    cls_ = {q.name: q.cls + (q.side or '') for q in P}
+    for i_ in np.argsort(-dw)[:6]:
+        if dw[i_] < 0.15:
+            break
+        a_, u_, b_, w_ = SEAMS[int(i_)]
+        x_ = verts_gl(byname[a_].o)[u_] / H
+        top_ = lambda W_: ' '.join(f'{BONES[k]}:{W_[k]:.2f}' for k in np.argsort(-W_)[:3] if W_[k] > 0.02)
+        log(f'  seam {cls_[a_]} {a_} / {cls_[b_]} {b_} at ({x_[0]:+.3f},{x_[1]:.3f},{x_[2]:+.3f}): {top_(W0[a_][u_])}  |  {top_(W0[b_][w_])}')
 scale_done = {}
 
 
@@ -1462,6 +2199,7 @@ def round_limb_patches():
         v = verts_gl(p.o)
         W = W0[p.name]
         own_bone = W.argmax(1)
+        rounded = np.zeros(len(v), dtype=bool)
         for seg, nxt_ in ends.items():
             if seg == 'hand' and STANDING:
                 continue  # an open hand is no tube, and the lids over its finger cuts must stay where they are
@@ -1510,7 +2248,21 @@ def round_limb_patches():
                     q2 = c2 + np.outer(new1, e1) + np.outer(x2, e2)
                     v[c_] = a + np.outer(t_all[c_], ax) + np.outer(q2[:, 0], u1) + np.outer(q2[:, 1], u2)
                     moved += int(c_.sum())
+                    rounded[c_] = True
         set_verts_gl(p.o, v)
+        # a patch that was rounded out is the limb's own surface, whatever it looked like flat: not an inside
+        if rounded.any() and 'lid' in me.attributes and len(me.attributes['lid'].data) == len(me.polygons):
+            lid_ = np.zeros(len(me.polygons), dtype=np.int32)
+            me.attributes['lid'].data.foreach_get('value', lid_)
+            lv_ = np.zeros(len(me.loops), dtype=np.int32)
+            me.loops.foreach_get('vertex_index', lv_)
+            ls_ = np.zeros(len(me.polygons), dtype=np.int32)
+            me.polygons.foreach_get('loop_start', ls_)
+            lt_ = np.zeros(len(me.polygons), dtype=np.int32)
+            me.polygons.foreach_get('loop_total', lt_)
+            hit_ = np.add.reduceat(rounded[lv_].astype(np.int32), ls_) > 0
+            lid_[(lid_ == 2) & hit_] = 1
+            me.attributes['lid'].data.foreach_set('value', lid_)
     return moved
 
 
@@ -1661,7 +2413,7 @@ for k in BONES:
 # Trousers sculpted around a bent leg keep their slack on one side when the leg is straightened: the standing
 # figure gets a bulging lap in front and the shin seems to lean. Slide every slice of each trouser leg (and the
 # seat above it) back onto the leg's axis, front-to-back; the cuffs stay where the shoes are.
-if not OVR.get('noColumns'):
+if not OVR.get('noColumns', STANDING):  # (a sculpt that stood straight has its legs as they hang: nothing to undo)
     for s, sgn in (('L', 1), ('R', -1)):
         sel, vv = {}, {}
         for p in leg_parts:
@@ -1698,10 +2450,27 @@ def pts_rest(cls, side):
     return np.concatenate([cur[p.name] for p in P if p.cls == cls and (side is None or p.side == side)])
 
 
+if SEAMS:
+    g0 = np.array([float(np.linalg.norm(verts0[a_][u_] - verts0[b_][w_])) for a_, u_, b_, w_ in SEAMS])
+    g1 = np.array([float(np.linalg.norm(cur[a_][u_] - cur[b_][w_])) for a_, u_, b_, w_ in SEAMS])
+    log(f'seams in the rest pose: opened by {(g1 - g0).max() / H * 1750:.1f} mm at worst, more than 2 mm at {int(((g1 - g0) > 0.002 / 1.75 * H).sum())} of {len(SEAMS)}')
+    cls_ = {q.name: q.cls + (q.side or '') for q in P}
+    for i_ in np.argsort(-(g1 - g0))[:5]:
+        if g1[i_] - g0[i_] < 0.002 / 1.75 * H:
+            break
+        a_, u_, b_, w_ = SEAMS[int(i_)]
+        x_ = verts0[a_][u_] / H
+        log(f'  open {cls_[a_]} {a_} / {cls_[b_]} {b_}: {(g1[i_] - g0[i_]) / H * 1750:.1f} mm, was at ({x_[0]:+.3f},{x_[1]:.3f},{x_[2]:+.3f})')
+        if opt('--dbgseam'):
+            top_ = lambda W_: ' '.join(f'{BONES[k]}:{W_[k]:.3f}' for k in np.argsort(-W_)[:4] if W_[k] > 0.001)
+            log(f'     a: sculpt {np.round(verts0[a_][u_] / H, 4)} rest {np.round(cur[a_][u_] / H, 4)} W {top_(W0[a_][u_])} ring {rim_ring(byname[a_])[u_]}')
+            log(f'     b: sculpt {np.round(verts0[b_][w_] / H, 4)} rest {np.round(cur[b_][w_] / H, 4)} W {top_(W0[b_][w_])} ring {rim_ring(byname[b_])[w_]}')
 radii_n = measure_radii(NP, pts_rest)
 log('radii (rest)', {k: round(v / H, 3) for k, v in radii_n.items()})
 body1 = capsules(NP, NP['headTop'], radii_n, hole_n, np.array([0.0, 1.0, 0.0]))
-stats = write_groups(compute_weights(lambda p: cur[p.name], body1), 'bone' if DEBUG else None)
+# (a sculpt that stood with its arms out was skinned as it stood, and that is the skin the game gets: every point
+# keeps the bones it was given where the shoulder was laid out flat)
+stats = write_groups(W0 if UNIFIED else compute_weights(lambda p: cur[p.name], body1), 'bone' if DEBUG else None)
 log('bone weight totals', {b: int(stats[i]) for i, b in enumerate(BONES)})
 for p in P:
     p.o.vertex_groups.remove(p.o.vertex_groups['_mix'])
@@ -1729,18 +2498,16 @@ def arc(a, b):
     return k / sn, math.atan2(sn, float(a @ b))
 
 
-def finger_branches(o, v, wrist, ax):
-    """The fingers of a hand, found on the mesh itself (however the sculpt was cut into parts).
+def finger_branches(e, v, wrist, ax):
+    """The fingers of a hand, found on the mesh itself (however the sculpt was cut into parts): `v` are the vertices
+    of everything on the arm from the wrist on, `e` the edges between them (the parts' own, and stitches across the
+    cuts between parts).
 
     Walking over the skin from the wrist, the fingertips are the places farthest away. Coming back down from them,
     each finger is a patch of skin of its own until it meets its neighbour at the web between them: what a patch
     holds at that moment is the finger. Returns the hand's length and the vertices of every finger.
     """
-    me = o.data
     n = len(v)
-    e = np.empty(len(me.edges) * 2, dtype=np.int64)
-    me.edges.foreach_get('vertices', e)
-    e = e.reshape(-1, 2)
     t = (v - wrist) @ ax
     hl = float(t.max())
     live = t > 0
@@ -1812,9 +2579,22 @@ def rig_fingers():
         arm_parts = [q for q in P if q.cls == 'arm' and q.side == s]
         if not arm_parts:
             continue
-        hand = max(arm_parts, key=lambda q: float(((cur[q.name] - wrist) @ ax).max()))  # the part the fingertips are on
-        v = cur[hand.name]
-        hl, branches = finger_branches(hand.o, v, wrist, ax)
+        # The hand is everything on the arm past the wrist, whatever parts it came in (a cut across the palm, a
+        # thumb left on the forearm's part): one skin, stitched together where the parts were cut.
+        hand_parts = [q for q in arm_parts if float(((cur[q.name] - wrist) @ ax).max()) > 0.01 * H]
+        at_, n_ = {}, 0
+        for q in hand_parts:
+            at_[q.name] = n_
+            n_ += len(cur[q.name])
+        v = np.concatenate([cur[q.name] for q in hand_parts])
+        edges = []
+        for q in hand_parts:
+            e_ = np.empty(len(q.o.data.edges) * 2, dtype=np.int64)
+            q.o.data.edges.foreach_get('vertices', e_)
+            edges.append(e_.reshape(-1, 2) + at_[q.name])
+        stitch = np.array([(at_[a_] + u_, at_[b_] + w_) for a_, u_, b_, w_ in SEAMS if a_ in at_ and b_ in at_], dtype=np.int64).reshape(-1, 2)
+        edges = np.concatenate(edges + [stitch])
+        hl, branches = finger_branches(edges, v, wrist, ax)
         if not branches or hl < 0.04 * H:
             log(f'fingers {s}: none found (hand {hl / H:.3f}H)')
             continue
@@ -1842,14 +2622,52 @@ def rig_fingers():
             t = (c - cc) @ d
             pieces.append({'k': k, 'pts': c, 'd': d, 'base': cc + d * t.min(), 'len': float(t.max() - t.min()), 'off': float(math.acos(np.clip(d @ ax, -1, 1))),
                            'low': float((cc + d * t.min() - wrist) @ ax)})
-        # the thumb: the one that points away from the others, or failing that the one that starts nearest the wrist
+        log(f'finger pieces {s}: ' + '  '.join(f"starts {f['low'] / hl:.2f} long {f['len'] / hl:.2f} off {f['off']:.2f}" for f in sorted(pieces, key=lambda f: float(f['base'] @ norm(np.cross(ax, n))))) + '  (in hand lengths)')
+        # the thumb: the one that points away from the others and leaves the hand low down, by the wrist (a finger
+        # that leans away is still a finger); failing that the one that starts nearest the wrist
         thumb = max(pieces, key=lambda f: f['off'])
-        if thumb['off'] < 0.4 or len(pieces) < 2:
+        if thumb['off'] < 0.4 or thumb['low'] > 0.5 * hl or len(pieces) < 2:
             lowest = min(pieces, key=lambda f: f['low'])
             thumb = lowest if len(pieces) >= 4 and lowest['low'] < 0.45 * hl else None
+        # A finger is a finger from its knuckle on, however the sculpt has it. Fingers held together are often one
+        # mass that parts only near the tips: the walk over the skin finds just the ends, and a fist made of those
+        # is a claw. The rest of each finger is the strip of the hand behind its end, half way to the next finger
+        # on either side, down to the line of the knuckles. And a hand that came as one lump (a mitten) is a
+        # finger only from that line on, not from the heel of the hand.
+        across = norm(np.cross(ax, n))  # from one side of the hand to the other, along the knuckles
+        fing = sorted([f for f in pieces if f is not thumb], key=lambda f: float(f['pts'].mean(0) @ across))
+        line = 0.56 * hl
+        uv, tv_ = v @ across, (v - wrist) @ ax
+        mids = [float(f['pts'].mean(0) @ across) for f in fing]
+        gap_ = float(np.median(np.diff(mids))) if len(mids) > 1 else 0.3 * hl
+        changed = []
+        for i_, f in enumerate(fing):
+            if f['low'] > line + 0.02 * hl:
+                lo_ = (mids[i_ - 1] + mids[i_]) / 2 if i_ else mids[i_] - 0.7 * gap_
+                hi_ = (mids[i_] + mids[i_ + 1]) / 2 if i_ + 1 < len(fing) else mids[i_] + 0.7 * gap_
+                grow = (member < 0) & live & (uv >= lo_) & (uv < hi_) & (tv_ > line)
+                if grow.any():
+                    member[grow] = f['k']
+                    changed.append(f)
+            elif f['low'] < 0.45 * hl:
+                cut = (member == f['k']) & (tv_ < line)
+                if cut.any() and (~cut & (member == f['k'])).sum() >= 20:
+                    member[cut] = -1
+                    changed.append(f)
+        for f in changed:
+            c = v[member == f['k']]
+            cc = c.mean(0)
+            d = np.linalg.svd(c - cc, full_matrices=False)[2][0]
+            if d @ ax < 0:
+                d = -d
+            t = (c - cc) @ d
+            f.update(pts=c, d=d, base=cc + d * t.min(), len=float(t.max() - t.min()), low=float((cc + d * t.min() - wrist) @ ax))
+            tr = kd(c)
+            dist[f['k']] = np.array([tr.find(Vector(x))[2] for x in v])
+        if changed:
+            log(f'finger pieces {s}, from the knuckles: ' + '  '.join(f"starts {f['low'] / hl:.2f} long {f['len'] / hl:.2f}" for f in fing))
         W = np.zeros((len(v), 0))
         names_all, knuckles = [], []
-        across = norm(np.cross(ax, n))  # from one side of the hand to the other, along the knuckles
         for order, f in enumerate(sorted(pieces, key=lambda f: float(f['base'] @ across))):
             f['order'] = order
         for f in sorted(pieces, key=lambda f: f is thumb):
@@ -1988,24 +2806,31 @@ def rig_fingers():
             for i, part in enumerate(parts):
                 W[:, kn['col'] + i] = np.where(palm_m, mine * part, W[:, kn['col'] + i])
         W[~live] = 0
+        # nothing of a finger reaches the wrist: there the hand is hand and nothing else, as the forearm is
+        W *= smooth(0.0, 0.1 * hl, (v - wrist) @ ax)[:, None]
+        # ... and the two sides of every cut through the hand bend as one
+        for a_, b_ in stitch:
+            W[a_] = W[b_] = (W[a_] + W[b_]) / 2
         share = np.clip(W.sum(1), 0, 1)
-        o = hand.o
-        gname = {g.index: g.name for g in o.vertex_groups}
-        groups = {}
-        for i in np.nonzero(share > 0.02)[0]:
-            i = int(i)
-            for ge in list(o.data.vertices[i].groups):
-                if share[i] > 0.98:
-                    o.vertex_groups[gname[ge.group]].remove([i])
-                else:
-                    o.vertex_groups[gname[ge.group]].add([i], ge.weight * float(1 - share[i]), 'REPLACE')
-            for j in np.nonzero(W[i] > 0.01)[0]:
-                nm = names_all[int(j)]
-                if nm not in groups:
-                    groups[nm] = o.vertex_groups.new(name=nm)
-                groups[nm].add([i], float(W[i, j]), 'REPLACE')
+        for q in hand_parts:
+            o, i0 = q.o, at_[q.name]
+            gname = {g.index: g.name for g in o.vertex_groups}
+            groups = {}
+            for i in np.nonzero(share[i0:i0 + len(cur[q.name])] > 0.02)[0]:
+                i = int(i)
+                sh_ = float(share[i0 + i])
+                for ge in list(o.data.vertices[i].groups):
+                    if sh_ > 0.98:
+                        o.vertex_groups[gname[ge.group]].remove([i])
+                    else:
+                        o.vertex_groups[gname[ge.group]].add([i], ge.weight * (1 - sh_), 'REPLACE')
+                for j in np.nonzero(W[i0 + i] > 0.01)[0]:
+                    nm = names_all[int(j)]
+                    if nm not in groups:
+                        groups[nm] = o.vertex_groups.new(name=nm)
+                    groups[nm].add([i], float(W[i0 + i, j]), 'REPLACE')
         log(f'fingers {s}: {len(pieces)} pieces' + (', thumb is one of them' if thumb else ', thumb is part of the palm') +
-            f'; {int((member >= 0).sum())} finger and {int((palm_m & (share > 0.02)).sum())} knuckle vertices of {len(v)}')
+            f'; {int((member >= 0).sum())} finger and {int((palm_m & (share > 0.02)).sum())} knuckle vertices of {len(v)} in {len(hand_parts)} parts')
     if not FINGERS:
         return
     bpy.context.view_layer.objects.active = ao
@@ -2029,6 +2854,7 @@ for p in P:
     m = p.o.modifiers.new('rig', 'ARMATURE')
     m.object = ao
 r4 = lambda a: [round(float(x), 4) for x in a]
+NECK_BASE = 'neck' if STANDING else 'head'
 ao['skrig'] = json.dumps({
     'rest': 'neutral',  # the armature's rest pose is a standing A-pose (see client/src/render/model.ts)
     'armA': round(A_POSE, 4),
@@ -2037,6 +2863,10 @@ ao['skrig'] = json.dumps({
     'tips': {k: r4(NP[k]) for k in ('tipL', 'tipR', 'toeL', 'toeR')},
     'headTop': r4(NP['headTop']),
     'sole': 0,
+    # the middle of the face and half the head's height, for portraits (measured from the base of the neck, which
+    # is where the head joint of a crouching sculpt is and the neck joint of a standing one)
+    'face': r4([NP['head'][0], NP[NECK_BASE][1] + 0.55 * (NP['headTop'][1] - NP[NECK_BASE][1]), NP['head'][2] + 0.07 * height]),
+    'headR': round(float(0.5 * (NP['headTop'][1] - NP[NECK_BASE][1])), 4),
     'radii': {k: round(float(v), 4) for k, v in radii_n.items()},
     # finger bones (children of the hand bones): turn each about `axis` (model space, rest pose) by angle x grip
     'fingers': [{'bone': f['bone'], 'axis': r4(f['axis']), 'angle': f['angle']} for f in FINGERS],
@@ -2086,6 +2916,275 @@ if DEBUG:
     bpy.data.objects.remove(cam)
 
 # ------------------------------------------------------------------ export
+def inside_materials():
+    """Patches that close an opening (see fill_holes) are the inside of a garment: a material of their own, dark and
+    flat, so that a glimpse up a sleeve or under a hem reads as shadow."""
+    n = 0
+    for p in P:
+        me = p.o.data
+        if 'lid' not in me.attributes or len(me.attributes['lid'].data) != len(me.polygons):
+            continue
+        flag = np.zeros(len(me.polygons), dtype=np.int32)
+        me.attributes['lid'].data.foreach_get('value', flag)
+        if not (flag == 2).any():
+            continue
+        c = [float(x) ** 2.2 * 0.3 for x in p.o.get('domcol', [0.4, 0.4, 0.4])]
+        mat = bpy.data.materials.new('inside_' + p.name)
+        mat.use_nodes = True
+        bsdf = next(nd for nd in mat.node_tree.nodes if nd.type == 'BSDF_PRINCIPLED')
+        bsdf.inputs['Base Color'].default_value = (c[0], c[1], c[2], 1.0)
+        bsdf.inputs['Roughness'].default_value = 1.0
+        bsdf.inputs['Metallic'].default_value = 0.0
+        me.materials.append(mat)
+        mi = np.zeros(len(me.polygons), dtype=np.int32)
+        me.polygons.foreach_get('material_index', mi)
+        mi[flag == 2] = len(me.materials) - 1
+        me.polygons.foreach_set('material_index', mi)
+        me.update()
+        n += int((flag == 2).sum())
+    return n
+
+
+def patch_colours():
+    """A patch that mends a surface was painted in its part's commonest colour (see fill_holes). That is right for a
+    part of one colour; but an arm is skin below its sleeve, and the sliver of patch that shows at a shoulder seam
+    should be sleeve. So every mending patch is painted again, face by face, in whichever of the part's main colours
+    the surface beside it has. Beside it, not at it: a part is cut where the sculpt has a seam, a seam lies in a
+    crease, and the texture of a crease is the shadow baked into it - a patch painted that colour is a dark fleck
+    when it shows. So the colour is looked up a hand's breadth around the rim, and it is the colour of the lit
+    cloth there (the brighter of what is found), not of its folds."""
+    n = 0
+    for p in P:
+        me = p.o.data
+        nv, nf, nl = len(me.vertices), len(me.polygons), len(me.loops)
+        if 'lid' not in me.attributes or len(me.attributes['lid'].data) != nf or not me.uv_layers.active:
+            continue
+        lid = np.zeros(nf, dtype=np.int32)
+        me.attributes['lid'].data.foreach_get('value', lid)
+        if not (lid == 1).any() or not (lid == 0).any():
+            continue
+        px = texture_pixels(p.o)
+        if px is None:
+            continue
+        h, w = px.shape[:2]
+        lv = np.zeros(nl, dtype=np.int32)
+        me.loops.foreach_get('vertex_index', lv)
+        lt = np.zeros(nf, dtype=np.int32)
+        me.polygons.foreach_get('loop_total', lt)
+        face_of = np.repeat(np.arange(nf), lt)
+        uvs = np.zeros(nl * 2, dtype=np.float32)
+        me.uv_layers.active.data.foreach_get('uv', uvs)
+        uvs = uvs.reshape(-1, 2)
+        col = px[np.clip((uvs[:, 1] % 1 * h).astype(int), 0, h - 1), np.clip((uvs[:, 0] % 1 * w).astype(int), 0, w - 1)].astype(np.float64)
+        del px
+        on_s, on_p = lid[face_of] == 0, lid[face_of] == 1
+        # the part's main colours (each at least a fortieth of its surface), and a texel that shows each
+        sc, su = col[on_s], uvs[on_s]
+        q = (sc * 7.999).astype(int)
+        key = q[:, 0] * 64 + q[:, 1] * 8 + q[:, 2]
+        cnt = np.bincount(key, minlength=512)
+        bins = [int(b) for b in np.argsort(-cnt) if cnt[b] >= max(1.0, 0.025 * len(key))] or [int(cnt.argmax())]
+        cand_c, cand_uv = [], []
+        for b in bins:
+            pick = np.nonzero(key == b)[0]
+            best = pick[int(np.argmin(np.linalg.norm(sc[pick] - sc[pick].mean(0), axis=1)))]
+            cand_c.append(sc[best])
+            cand_uv.append(su[best])
+        cand_c, cand_uv = np.array(cand_c), np.array(cand_uv)
+        if len(cand_c) < 2:
+            continue  # a part of one colour is painted already
+        vcol, has = np.zeros((nv, 3)), np.zeros(nv, dtype=bool)
+        vcol[lv[on_s]] = col[on_s]
+        has[lv[on_s]] = True
+        pv = np.zeros(nv, dtype=bool)
+        pv[lv[on_p]] = True
+        rim = has & pv
+        if not rim.any():
+            continue
+        e = np.zeros(len(me.edges) * 2, dtype=np.int32)
+        me.edges.foreach_get('vertices', e)
+        e = e.reshape(-1, 2)
+        # out over the surface from the rim: which rim vertex each vertex is nearest to, and how many edges away
+        src, ring = np.full(nv, -1, dtype=np.int64), np.full(nv, 99, dtype=np.int64)
+        src[rim] = np.nonzero(rim)[0]
+        ring[rim] = 0
+        se = e[has[e[:, 0]] & has[e[:, 1]]]
+        for k in range(1, 11):
+            for a_, b_ in ((se[:, 0], se[:, 1]), (se[:, 1], se[:, 0])):
+                go = (ring[a_] == k - 1) & (ring[b_] > k)
+                ring[b_[go]] = k
+                src[b_[go]] = src[a_[go]]
+        local = vcol.copy()
+        lum = vcol @ np.array([0.3, 0.6, 0.1])
+        for lo_ in (1, 4):  # (well away from the rim if there is that much surface, else whatever there is)
+            sel = np.nonzero(has & (ring >= lo_) & (ring <= 10))[0]
+            if not len(sel):
+                continue
+            order = sel[np.lexsort((lum[sel], src[sel]))]  # grouped by rim vertex, darkest first within each
+            owner, first, count = np.unique(src[order], return_index=True, return_counts=True)
+            ok = count >= (1 if lo_ == 1 else 4)
+            pick = order[first + ((count - 1) * 3) // 4]  # three quarters of the way up: lit cloth, not a highlight
+            local[owner[ok]] = vcol[pick[ok]]
+        # in over the patches from the rim: the rim vertex every patch vertex is nearest to
+        lab = np.full(nv, -1, dtype=np.int64)
+        lab[rim] = np.nonzero(rim)[0]
+        pe = e[pv[e[:, 0]] & pv[e[:, 1]]]
+        for _ in range(600):
+            moved = False
+            for a_, b_ in ((pe[:, 0], pe[:, 1]), (pe[:, 1], pe[:, 0])):
+                go = (lab[a_] >= 0) & (lab[b_] < 0)
+                if go.any():
+                    lab[b_[go]] = lab[a_[go]]
+                    moved = True
+            if not moved:
+                break
+        fl = np.full(nf, -1, dtype=np.int64)
+        np.maximum.at(fl, face_of[on_p], lab[lv[on_p]])
+        faces = np.nonzero((lid == 1) & (fl >= 0))[0]
+        if not len(faces):
+            continue
+        want = local[fl[faces]]
+        fc = np.full(nf, -1, dtype=np.int64)
+        for i0 in range(0, len(faces), 4096):
+            d = ((want[i0:i0 + 4096, None, :] - cand_c[None]) ** 2).sum(2)
+            fc[faces[i0:i0 + 4096]] = d.argmin(1)
+        m = fc[face_of] >= 0
+        uvs[m] = cand_uv[fc[face_of[m]]]
+        me.uv_layers.active.data.foreach_set('uv', uvs.astype(np.float32).ravel())
+        me.update()
+        n += int((fc[faces] > 0).sum())
+    return n
+
+
+def seam_normals():
+    """Every part is shaded by its own normals, and at a cut each side only knows its own half of the surface: the
+    light breaks along the cut, and on bare skin that is a line drawn round the arm. So the two sides of every cut
+    get one normal, the mean of theirs (taken from the surface alone: the patch that closes a part behind its rim
+    has no say in how the rim is lit).
+
+    The patches themselves are lit as the surface they mend: the surface's normals are carried across a patch from
+    its rim, and a patch faces whichever way those say. Where the two rims of a cut do not quite meet, the sliver
+    of patch that shows between them is then one more piece of the surface - not the back of a membrane, lit from
+    the wrong side, a dark fleck on the seam."""
+    nor, turned = {}, 0
+    for p in P:
+        me = p.o.data
+        nv, nf = len(me.vertices), len(me.polygons)
+        pn = np.zeros(nf * 3, dtype=np.float32)
+        me.polygons.foreach_get('normal', pn)
+        pn = pn.reshape(-1, 3).astype(np.float64)
+        pa = np.zeros(nf, dtype=np.float32)
+        me.polygons.foreach_get('area', pa)
+        lid = np.zeros(nf, dtype=np.int32)
+        if 'lid' in me.attributes and len(me.attributes['lid'].data) == nf:
+            me.attributes['lid'].data.foreach_get('value', lid)
+        lv = np.zeros(len(me.loops), dtype=np.int32)
+        me.loops.foreach_get('vertex_index', lv)
+        ls = np.zeros(nf, dtype=np.int32)
+        me.polygons.foreach_get('loop_start', ls)
+        lt = np.zeros(nf, dtype=np.int32)
+        me.polygons.foreach_get('loop_total', lt)
+        face_of = np.repeat(np.arange(nf), lt)  # (loops are stored face by face)
+        surf, every = np.zeros((nv, 3)), np.zeros((nv, 3))
+        wgt = pn * pa[:, None]
+        np.add.at(every, lv, wgt[face_of])
+        np.add.at(surf, lv, wgt[face_of] * (lid[face_of] == 0)[:, None])
+        has = np.linalg.norm(surf, axis=1) > 1e-12
+        own = every / np.maximum(np.linalg.norm(every, axis=1), 1e-12)[:, None]
+        n_ = np.zeros((nv, 3))
+        n_[has] = surf[has] / np.linalg.norm(surf[has], axis=1)[:, None]
+        free = ~has
+        if free.any():
+            # (each vertex inside a patch the mean of its neighbours, over and over: near a rim that is the rim's
+            # normal; in the middle of the disc that closes a limb where it was cut the rim's normals cancel out,
+            # and what is left over is made up with the patch's own)
+            e = np.zeros(len(me.edges) * 2, dtype=np.int32)
+            me.edges.foreach_get('vertices', e)
+            e = e.reshape(-1, 2)
+            e = e[free[e[:, 0]] | free[e[:, 1]]]
+            ea, eb = np.concatenate([e[:, 0], e[:, 1]]), np.concatenate([e[:, 1], e[:, 0]])
+            keep = free[ea]
+            ea, eb = ea[keep], eb[keep]
+            deg = np.maximum(np.bincount(ea, minlength=nv), 1)[:, None]
+            for _ in range(80):
+                acc = np.zeros((nv, 3))
+                for c_ in range(3):
+                    acc[:, c_] = np.bincount(ea, weights=n_[eb, c_], minlength=nv)
+                n_[free] = (acc / deg)[free]
+            k_ = np.linalg.norm(n_[free], axis=1)
+            mix = n_[free] + np.maximum(0.0, 1.0 - k_)[:, None] * own[free]
+            n_[free] = mix / np.maximum(np.linalg.norm(mix, axis=1), 1e-12)[:, None]
+        nor[p.name] = n_
+    key, parent = {}, []
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for a_, u_, b_, w_ in SEAMS:
+        for k_ in ((a_, u_), (b_, w_)):
+            if k_ not in key:
+                key[k_] = len(parent)
+                parent.append(len(parent))
+        ra, rb = find(key[(a_, u_)]), find(key[(b_, w_)])
+        if ra != rb:
+            parent[ra] = rb
+    groups = {}
+    for k_, i_ in key.items():
+        groups.setdefault(find(i_), []).append(k_)
+    for members in groups.values():
+        m = sum(nor[n_][i_] for n_, i_ in members)
+        ln = float(np.linalg.norm(m))
+        if ln > 1e-9:
+            for n_, i_ in members:
+                nor[n_][i_] = m / ln
+    for p in P:
+        me = p.o.data
+        nf = len(me.polygons)
+        if 'lid' in me.attributes and len(me.attributes['lid'].data) == nf:
+            lid = np.zeros(nf, dtype=np.int32)
+            me.attributes['lid'].data.foreach_get('value', lid)
+            if (lid == 1).any():
+                pn = np.zeros(nf * 3, dtype=np.float32)
+                me.polygons.foreach_get('normal', pn)
+                pn = pn.reshape(-1, 3).astype(np.float64)
+                lv = np.zeros(len(me.loops), dtype=np.int32)
+                me.loops.foreach_get('vertex_index', lv)
+                lt = np.zeros(nf, dtype=np.int32)
+                me.polygons.foreach_get('loop_total', lt)
+                face_of = np.repeat(np.arange(nf), lt)
+                fm = np.zeros((nf, 3))
+                for c_ in range(3):
+                    fm[:, c_] = np.bincount(face_of, weights=nor[p.name][lv, c_], minlength=nf)
+                flip = np.nonzero((lid == 1) & ((fm * pn).sum(1) < 0))[0]
+                for i_ in flip:
+                    me.polygons[int(i_)].flip()
+                if len(flip):
+                    me.update()
+                    turned += len(flip)
+        me.normals_split_custom_set_from_vertices([Vector((float(x), float(y), float(z))) for x, y, z in nor[p.name]])
+    return len(groups), turned
+
+
+# (a patch can fold back onto a triangle of the surface it mends, the same three corners: one of the two is enough,
+# and the exporter would drop the other anyway, with a warning for every part)
+log('parts with patch faces lying on a face of the surface (dropped):', sum(1 for p in P if p.o.data.validate(verbose=False)))
+log('patch faces painted in the colour of the surface beside them (not their part\'s commonest):', patch_colours())
+log('seam normals joined at %d places; %d patch faces turned to face the way they are lit' % seam_normals())
+# (a sculpt that crouched has holes of every kind where it was folded onto itself, and they are all mended with
+# surface: only a standing one has openings that can be told from mends)
+log('inside faces:', inside_materials() if STANDING else 0)
+for p in P:  # names that say what a part is (tools and the model check read them)
+    p.o.name = p.o.data.name = f'{p.cls}{p.side or ""}_{p.name.replace("tripo_part_", "")}'
+if opt('--seams'):
+    rest = {p.name: verts_gl(p.o) for p in P}
+    named = {p.name: p.o.name for p in P}
+    os.makedirs(opt('--seams'), exist_ok=True)
+    with open(os.path.join(opt('--seams'), NAME + '.seams.json'), 'w', encoding='utf8') as f:
+        json.dump({'pairs': [[named[a_], [round(float(x), 5) for x in rest[a_][u]], named[b_], [round(float(x), 5) for x in rest[b_][w]]] for a_, u, b_, w in SEAMS]}, f)
+    log(f'seams written down: {len(SEAMS)} pairs')
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 props = bpy.ops.export_scene.gltf.get_rna_type().properties.keys()
 kw = dict(filepath=OUT, export_format='GLB', export_image_format='WEBP', export_image_quality=82,

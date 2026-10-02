@@ -131,7 +131,7 @@ def main():
                 print('   FAILED (prep)', flush=True)
                 continue
         out = os.path.join(OUT, fid + '.glb')
-        args = [CACHE, fid, out, '--overrides', ovr]
+        args = [CACHE, fid, out, '--overrides', ovr, '--seams', os.path.join(TOOLS, 'dbg2')]
         if a.debug:
             args += ['--debug', os.path.join(TOOLS, 'debug')]
         before = os.path.getmtime(out) if os.path.exists(out) else 0

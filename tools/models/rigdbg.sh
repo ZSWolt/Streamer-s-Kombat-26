@@ -5,8 +5,8 @@ BL="/c/Program Files/Blender Foundation/Blender 5.2/blender.exe"
 T="G:/AI/Claude/TEKKEN/tools/models"
 id="$1"
 shift
-"$BL" -b --factory-startup -P "$T/rig.py" -- "$T/cache" "$id" "$T/proto/$id.glb" --debug "$T/dbg2" --overrides "$T/overrides/$id.json" "$@" 2>&1 \
-  | grep -E "^@@ (pelvis|trunk|legs|knee|shoulders|thigh|shin|shoe|arm|rounded|rest pose|exported|ok|warn)|Error|Traceback|File \"|line [0-9]+"
+"$BL" -b --factory-startup -P "$T/rig.py" -- "$T/cache" "$id" "$T/proto/$id.glb" --debug "$T/dbg2" --overrides "$T/overrides/$id.json" --seams "$T/dbg2" "$@" > "$T/dbg2/$id.log" 2>&1
+grep -E "^@@ (tailoring|standing|pelvis|trunk|legs|knee|shoulder|thigh|shin|shoe|arm|rounded|rest pose|inside|fingers|exported|ok|warn)|Error|Traceback|File \"|line [0-9]+" "$T/dbg2/$id.log"
 cd "$T/dbg2" || exit 1
 python ../sheet.py "${id}_fit.jpg" "${id}_fit_front.png" "${id}_fit_left.png" "${id}_fit_back.png" "${id}_fit_top.png" --cols 4 --h 760 >/dev/null
 if [ -f "${id}_rest_front.png" ]; then
