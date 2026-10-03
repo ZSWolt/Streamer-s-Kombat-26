@@ -1249,9 +1249,18 @@ if STANDING:
     # The neck of a body standing square is on its centre line. It turns over its own length: the neck joint at its
     # base, the head joint where the skull sits on it (see up_the_neck for what turns with which).
     yn_, zn_ = neck_of(np.concatenate([p.s for p in P if p.cls in ('head', 'headacc', 'torso', 'torso2')]), mx)
+    log(f'standing model: neck narrowest at {yn_ / H:.3f}H, {zn_ / H:+.3f} front to back')
+    # A hood worn up round the neck (or a high collar) hides the neck, and the narrowest place over the collar is then
+    # up in the face, between the headphones: a head turning there tears the face in two, the mouth left with the chest
+    # and the brow gone with the head. The head turns below the face, always.
+    fb_ = meta.get('face_box')
+    if not fb_ and OVR.get('keepFace', True):  # (a cache from before prep wrote it down: the same window, measured here)
+        fb_ = {'lo': max(float(p.hi[1]) for p in P if p.cls in ('head', 'headacc', 'torso2')) - 0.16 * H}
+    if fb_ and yn_ + NECK_UP * H > fb_['lo'] - 0.01 * H:
+        yn_ = fb_['lo'] - 0.01 * H - NECK_UP * H
+        log(f'standing model: the narrowest place was in the face (a hood or a high collar); the head turns below it, at {(yn_ + NECK_UP * H) / H:.3f}H')
     J['neck'] = np.array([mx, yn_ - NECK_DOWN * H, zn_])
     J['head'] = np.array([mx, yn_ + NECK_UP * H, zn_])
-    log(f'standing model: neck narrowest at {yn_ / H:.3f}H, {zn_ / H:+.3f} front to back')
     log(f'standing model: fork of the legs at {crotch / H:.3f}, hips at {pelvis[1] / H:.3f}, {half / H:.3f} either side')
     FORK_DROP = float(pelvis[1] - crotch)  # how far below the hip joints the trousers fork
     # Two legs of a pair of trousers (or of wide shorts) that touch below the fork were never one surface, however

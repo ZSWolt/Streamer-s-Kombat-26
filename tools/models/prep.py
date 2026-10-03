@@ -733,6 +733,8 @@ meta = {
     'parts': {p.name: {'cls': p.cls, 'side': p.side, 'tris': p.tris, 'lo': p.lo.tolist(), 'hi': p.hi.tolist()} for p in P},
     'fingers': FINGERS,  # hand part -> the point clouds (in the .npz) of the finger pieces welded onto it
     'interfaces': [{'a': a, 'b': b, 'c': f['c'].tolist(), 'r': f['r'], 'n': f['n']} for (a, b), f in IF.items() if a < b],
+    # the window the face is in (see face_parts): rig.py keeps the head's pivot below it
+    'face_box': {k: float(v) for k, v in FACE_BOX.items()} if FACE_BOX else None,
 }
 with open(os.path.join(CACHE, NAME + '.json'), 'w', encoding='utf8') as f:
     json.dump(meta, f, indent=1)

@@ -260,7 +260,7 @@ export const ROSTER: Fighter[] = [
   {
     id: 'philip', name: 'PHILIP', he: 'פיליפ', title: 'THE BRAWLER', titleHe: 'הבריון', platform: 'guest', channel: '',
     accent: '#e8b646', stage: 5, stats: [2, 5, 4, 3],
-    look: { skin: '#d9a888', hair: '#5a3a22', hairStyle: 'sidepart', beard: 'mustache', beardColor: '#5a3420', shirt: '#d8c3a0', jacket: '#4a2c18', pants: '#2a2f3a', shoes: '#6a4024', build: 'burly', height: 1.05 },
+    look: { skin: '#6a4630', hair: '#c9a04a', hairStyle: 'long', beard: 'trim', beardColor: '#2a2018', shirt: '#cdb38a', jacket: '#3a2418', pants: '#1e1b1a', shoes: '#4a2f1c', build: 'burly', height: 1.05 },
     specials: [
       sp('U', 'אגרוף פטיש', 'HAMMER FIST', 'dashpunch', rush({ vfx: 'hammer', damage: 95, speed: 96, active: 14, armor: 1, knockdown: true })),
       sp('FU', 'חיבוק דוב', 'BEAR HUG', 'grab', { kind: 'grab', startup: 9, active: 4, recovery: 32, damage: 140, range: 860, knockdown: true, vfx: 'bearhug' }),
