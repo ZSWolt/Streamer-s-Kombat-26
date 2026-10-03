@@ -13,7 +13,9 @@ the moment it stands, kicks or celebrates, so this stage:
 All analysis is done in glTF space: +X = character's left, +Y = up, +Z = front (same as the game rig).
 Overrides JSON (optional):
   {"joints": {"armL": [x, y, z]},      joint positions on the sculpt (glTF space, model height = 1)
-   "parts": {"tripo_part_5": "armR"},  part classes (torso torso2 head headacc armL armR leg shoe acc)
+   "parts": {"tripo_part_5": "armR"},  part classes (torso torso2 head headacc armL armR leg shoe cape acc)
+   "capeRows": 9, "capeCols": 7,       the cloth a cape hangs as in the game (see rig_cape),
+   "capeHold": [1, 0.55, 0.18, 0.06],  and how firmly each row from the top is held to its place on the back
    "headYaw": 0, "headPitch": 0,       how the sculpted head is turned (radians)
    "hipWidth": 0.13, "upperArm": 0.9,  anatomical priors (see fit)
    "headScale": 1.15,                  tailoring (see there): a bigger head,
@@ -494,7 +496,7 @@ def tailor():
         kr = float(OVR.get('armThick', 1 + 0.35 * (k - 1)))
 
         def let_out(pts, cls):
-            if cls in ('head', 'headacc', 'leg', 'shoe'):
+            if cls in ('head', 'headacc', 'leg', 'shoe', 'cape'):  # (a cape hangs behind the shoulders, not on the arms)
                 return pts
             out = np.array(pts, dtype=np.float64)
             for s, sg in (('L', 1.0), ('R', -1.0)):
@@ -612,6 +614,11 @@ for o in [o for o in scene.objects if o.type == 'MESH']:
         for d_ in (meta['parts'], SAMP, PCLS):
             d_.pop(o.name, None)
         bpy.data.objects.remove(o)
+        continue
+    if meta['parts'][o.name]['cls'] == 'cape':
+        # The panels of a cape are thin shells, open only where Tripo cut them apart, and every such rim lies on the
+        # next panel's (snap_cuts closes the hair-lines between them). A lid across one would be a flat sheet through
+        # the folds of the cloth.
         continue
     fill_holes(o)
 P = [Part(o) for o in sorted([o for o in scene.objects if o.type == 'MESH'], key=lambda o: o.name)]
@@ -1038,7 +1045,13 @@ head_top = np.array([head_c[0], max(p.hi[1] for p in head_group), head_c[2]])  #
 for s in 'LR':
     sh = shoe[s]
     cands = [(iface(sh, p), p) for p in leg_parts if iface(sh, p)]
-    if cands:
+    shaft = sh.s[np.abs(sh.s[:, 1] - (sh.lo[1] + (OVR.get('ankleHeight', 0.05) + 0.05) * H)) < 0.012 * H]  # (above the instep)
+    if sh.hi[1] - sh.lo[1] > 0.14 * H and len(shaft) >= 10:
+        # a boot: where it meets the trousers is half way up the calf, nowhere near the ankle. The ankle is where a
+        # body has it, in the middle of the boot's shaft just above it.
+        J['foot' + s] = np.array([shaft[:, 0].mean(), sh.lo[1] + OVR.get('ankleHeight', 0.05) * H, shaft[:, 2].mean()])
+        log(f'boot {s}: {(sh.hi[1] - sh.lo[1]) / H:.3f}H tall, ankle by proportion')
+    elif cands:
         f, _ = max(cands, key=lambda x: x[0]['n'])
         J['foot' + s] = f['c'] + np.array([0, -0.022 * H, 0])
     else:
@@ -1753,6 +1766,8 @@ def candidates(p):
         return ['foot' + p.side]
     if p.cls in ('head', 'headacc'):
         return ['head']
+    if p.cls == 'cape':
+        return ['chest']  # (only while the sculpt is straightened: the game hangs it from bones of its own, rig_cape)
     return None  # accessory: rides on one bone
 
 
@@ -2470,7 +2485,8 @@ log('radii (rest)', {k: round(v / H, 3) for k, v in radii_n.items()})
 body1 = capsules(NP, NP['headTop'], radii_n, hole_n, np.array([0.0, 1.0, 0.0]))
 # (a sculpt that stood with its arms out was skinned as it stood, and that is the skin the game gets: every point
 # keeps the bones it was given where the shoulder was laid out flat)
-stats = write_groups(W0 if UNIFIED else compute_weights(lambda p: cur[p.name], body1), 'bone' if DEBUG else None)
+WFIN = W0 if UNIFIED else compute_weights(lambda p: cur[p.name], body1)
+stats = write_groups(WFIN, 'bone' if DEBUG else None)
 log('bone weight totals', {b: int(stats[i]) for i, b in enumerate(BONES)})
 for p in P:
     p.o.vertex_groups.remove(p.o.vertex_groups['_mix'])
@@ -2849,6 +2865,147 @@ def rig_fingers():
 
 if OVR.get('fingers', True):
     rig_fingers()
+
+
+# ------------------------------------------------------------------ cape
+# A cape swings: in the game it is a cloth of rows x columns of points (client/src/render/model.ts), each carrying a
+# bone that the cape's vertices follow, bilinear in where they lie on the cloth - across it, as a share of its width
+# at that height, and down it. The top row is fastened to the body where the cape lies on it, with that place's
+# own skin weights (so it rises and falls with the shoulders as the cloth under it does); the rows below hang from
+# it, each held to its place on the back a little less than the one above, the rest free.
+CAPE = None
+
+
+def rig_cape():
+    global CAPE
+    parts = [p for p in P if p.cls == 'cape']
+    if not parts:
+        return
+    R, C = int(OVR.get('capeRows', 9)), int(OVR.get('capeCols', 7))
+    hold_rows = list(OVR.get('capeHold', [1.0, 0.55, 0.18, 0.06]))
+    va = np.concatenate([cur[p.name] for p in parts])
+    y_top, y_bot = float(va[:, 1].max()), float(va[:, 1].min())
+    L = y_top - y_bot
+    # Where a vertex is on the cloth. Across: its share of the cape's width at that height (a smooth run from the
+    # shoulders down; the hem curls and dips, so below the last sixth the width stays what it was above). Down: how
+    # far it is from the top edge to the hem at that place across, so the corners of a hem that dips in the middle
+    # are bottom row too.
+    bands = np.linspace(y_top, y_bot + L / 6, 33)
+    xl, xh = [], []
+    for y in bands:
+        b = va[np.abs(va[:, 1] - y) < 0.6 * (bands[0] - bands[1])]
+        xl.append(float(np.percentile(b[:, 0], 1)) if len(b) >= 10 else np.nan)
+        xh.append(float(np.percentile(b[:, 0], 99)) if len(b) >= 10 else np.nan)
+    xl, xh = np.array(xl), np.array(xh)
+    ok = np.isfinite(xl) & np.isfinite(xh)
+    xl, xh = np.interp(bands, bands[ok][::-1], xl[ok][::-1]), np.interp(bands, bands[ok][::-1], xh[ok][::-1])
+    xl = np.convolve(np.pad(xl, 2, mode='edge'), np.ones(5) / 5, mode='valid')
+    xh = np.convolve(np.pad(xh, 2, mode='edge'), np.ones(5) / 5, mode='valid')
+
+    def across(v):
+        y = v[:, 1]
+        lo_, hi_ = np.interp(-y, -bands, xl), np.interp(-y, -bands, xh)
+        return np.clip((v[:, 0] - lo_) / np.maximum(hi_ - lo_, 1e-6), 0, 1)
+
+    ua0 = across(va)
+    ub = np.linspace(0, 1, 25)
+    tops, hems = [], []
+    for u in ub:
+        b = va[np.abs(ua0 - u) < 0.05, 1]
+        tops.append(float(np.percentile(b, 99.5)) if len(b) >= 10 else np.nan)
+        hems.append(float(np.percentile(b, 0.5)) if len(b) >= 10 else np.nan)
+    tops, hems = np.array(tops), np.array(hems)
+    ok = np.isfinite(tops) & np.isfinite(hems)
+    tops, hems = np.interp(ub, ub[ok], tops[ok]), np.interp(ub, ub[ok], hems[ok])
+    tops = np.convolve(np.pad(tops, 2, mode='edge'), np.ones(5) / 5, mode='valid')
+    hems = np.convolve(np.pad(hems, 2, mode='edge'), np.ones(5) / 5, mode='valid')
+
+    def uv(v):
+        u = across(v)
+        t_, b_ = np.interp(u, ub, tops), np.interp(u, ub, hems)
+        return u, np.clip((t_ - v[:, 1]) / np.maximum(t_ - b_, 1e-6), 0, 1)
+
+    # the points of the cloth: the middle of the cape (both faces of it, and its folds) around each one - a plane
+    # fitted to what lies around it, so that the points of the outer rows and columns are on the edges of the cape and
+    # not a third of the way in from them (the cape would hang below its lowest row, into the floor)
+    ua, wa = uv(va)
+    pts = np.zeros((R, C, 3))
+    for r in range(R):
+        for c in range(C):
+            du, dv = ua - c / (C - 1), wa - r / (R - 1)
+            k = np.maximum(0, 1 - np.abs(du) * (C - 1) / 1.5) * np.maximum(0, 1 - np.abs(dv) * (R - 1) / 1.5)
+            if (k > 0).sum() < 12:
+                k = 1.0 / (1e-4 + du ** 2 + dv ** 2)
+            A = np.stack([np.ones(len(va)), du, dv], axis=1) * np.sqrt(k)[:, None]
+            pts[r, c] = np.linalg.lstsq(A, va * np.sqrt(k)[:, None], rcond=None)[0][0]
+    # what fastens each point: the top rows to the body beneath (the skin weights of the nearest body vertices),
+    # the rest to the chest (their place on the back)
+    body = [q for q in P if q.cls not in ('cape', 'head', 'headacc')]
+    bv = np.concatenate([cur[q.name] for q in body])
+    bw = np.concatenate([WFIN[q.name] for q in body])
+    tree = kd(bv)
+    anchor, hold = [], []
+    for r in range(R):
+        for c in range(C):
+            h = float(hold_rows[r]) if r < len(hold_rows) else 0.0
+            hold.append(round(h, 3))
+            if r < 2:
+                near = [i for _, i, _ in tree.find_n(Vector(pts[r, c]), 16)]
+                w = bw[near].mean(0)
+                # (the back and the shoulders: a cape does not turn with the head, nor reach down an arm)
+                w[[BI[b] for b in BONES if b not in ('hips', 'spine', 'chest', 'armL', 'armR')]] = 0
+                if w.sum() < 1e-6:
+                    w[BI['chest']] = 1
+            else:
+                w = np.zeros(len(BONES))
+                w[BI['chest']] = 1
+            top = np.argsort(-w)[:4]
+            top = [int(b) for b in top if w[b] > 0.02]
+            s = float(sum(w[b] for b in top))
+            anchor.append([[BONES[b], round(float(w[b] / s), 3)] for b in top])
+    names = [f'cp{r}_{c}' for r in range(R) for c in range(C)]
+    # every cape vertex: bilinear between the four points around its place on the cloth
+    n_v = 0
+    for p in parts:
+        o = p.o
+        v = cur[p.name]
+        u_, w_ = uv(v)
+        fc, fr = u_ * (C - 1), w_ * (R - 1)
+        c0, r0 = np.minimum(fc.astype(int), C - 2), np.minimum(fr.astype(int), R - 2)
+        tc, tr = fc - c0, fr - r0
+        for vg in list(o.vertex_groups):
+            o.vertex_groups.remove(vg)
+        groups = {}
+        for i in range(len(v)):
+            for dr, dc, w in ((0, 0, (1 - tr[i]) * (1 - tc[i])), (0, 1, (1 - tr[i]) * tc[i]), (1, 0, tr[i] * (1 - tc[i])), (1, 1, tr[i] * tc[i])):
+                if w > 0.005:
+                    nm = names[(r0[i] + dr) * C + c0[i] + dc]
+                    g = groups.get(nm)
+                    if g is None:
+                        g = groups[nm] = o.vertex_groups.new(name=nm)
+                    g.add([i], float(w), 'REPLACE')
+        n_v += len(v)
+    bpy.context.view_layer.objects.active = ao
+    for q in scene.objects:
+        q.select_set(q is ao)
+    bpy.ops.object.mode_set(mode='EDIT')
+    for r in range(R):
+        for c in range(C):
+            e = ao.data.edit_bones.new(names[r * C + c])
+            e.head = to_bl(pts[r, c])
+            e.tail = to_bl(pts[r, c] - np.array([0.0, 0.03 * H, 0.0]))
+            e.parent = ao.data.edit_bones['chest']
+            e.use_connect = False
+    bpy.ops.object.mode_set(mode='OBJECT')
+    CAPE = {'rows': R, 'cols': C, 'bones': names, 'hold': hold, 'anchor': anchor,
+            'rest': [[round(float(x), 4) for x in pts[r, c]] for r in range(R) for c in range(C)]}
+    width = [float(np.linalg.norm(pts[r, -1] - pts[r, 0])) / H for r in (0, R // 2, R - 1)]
+    log(f'cape: {len(parts)} parts, {n_v} vertices on a cloth of {R} x {C} points, {L / H:.3f}H long, '
+        f'{width[0]:.3f} / {width[1]:.3f} / {width[2]:.3f}H wide at the top / middle / hem; top row fastened to ' +
+        ', '.join(sorted({a[0] for row in anchor[:C] for a in row})))
+
+
+rig_cape()
 for p in P:
     p.o.parent = ao
     m = p.o.modifiers.new('rig', 'ARMATURE')
@@ -2870,6 +3027,9 @@ ao['skrig'] = json.dumps({
     'radii': {k: round(float(v), 4) for k, v in radii_n.items()},
     # finger bones (children of the hand bones): turn each about `axis` (model space, rest pose) by angle x grip
     'fingers': [{'bone': f['bone'], 'axis': r4(f['axis']), 'angle': f['angle']} for f in FINGERS],
+    # a cape's cloth (rig_cape): its points row by row from the top, how firmly each is held to its place, and the
+    # body bones that place moves with
+    **({'cape': CAPE} if CAPE else {}),
 })
 
 # ------------------------------------------------------------------ debug renders

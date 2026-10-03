@@ -295,7 +295,7 @@ export const ROSTER: Fighter[] = [
   {
     id: 'shaliachpizza', name: 'SHALIACH PIZZA', he: 'שליח פיצה', title: 'THE DELIVERY GUY', titleHe: 'השליח', platform: 'youtube', channel: 'youtube.com/@שליח_פיצה',
     accent: '#ff8a1f', stage: 2, stats: [5, 2, 2, 4],
-    look: { skin: '#d8a888', hair: '#1c1611', hairStyle: 'short', beard: 'stubble', cap: { color: '#d2281e', backwards: false }, shirt: '#d2281e', shirtText: 'PIZZA', pants: '#1c1d22', shoes: '#f0f0f0', build: 'slim', height: 1 },
+    look: { skin: '#d8a888', hair: '#1c1611', hairStyle: 'bald', beard: 'none', cap: { color: '#d2281e', backwards: false }, shirt: '#d2281e', shirtText: 'PIZZA', pants: '#1c1d22', shoes: '#f0f0f0', build: 'slim', height: 1 },
     specials: DELIVERY_CREW,
     hype: DELIVERY_HYPE,
     intro: 'הזמנת פיצה? הגעתי.', win: 'בתיאבון. ואל תשכח טיפ.',

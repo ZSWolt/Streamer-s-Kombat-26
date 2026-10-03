@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { CapeCloth, type SkCape } from './cape';
 import { J, JOINTS } from './pose';
 
 // Real character models (tools/models/prep.py + rig.py output). Each GLB carries a 17-bone skeleton named after
@@ -35,6 +36,10 @@ interface SkRig {
   headR?: number;
   /** finger bones (children of the hand bones): each turns about `axis` (model space, rest pose) by angle x grip */
   fingers?: { bone: string; axis: number[]; angle: number }[];
+  /** limb and trunk thickness in the rest pose (model units) */
+  radii?: Record<string, number>;
+  /** a cape's cloth (render/cape.ts); `rest` = where each of its points is in the rest pose */
+  cape?: SkCape & { rest: number[][] };
 }
 export interface ModelAsset { id: string; scene: THREE.Object3D; rig: SkRig }
 
@@ -173,6 +178,7 @@ export class ModelSkin {
   /** How closed each hand is (left, right): 0 open .. 1 fist. Only models with finger bones show it. */
   grip: [number, number] = [1, 1];
   private fingers: { bone: THREE.Object3D; rest: THREE.Quaternion; axis: THREE.Vector3; angle: number; hand: 0 | 1 }[] = [];
+  private cape: CapeCloth | null = null;
   private bones: THREE.Object3D[] = [];
   private bindPos: THREE.Vector3[] = [];
   private bindRot: THREE.Quaternion[] = [];
@@ -268,6 +274,22 @@ export class ModelSkin {
           if (own.has(idx.getX(i)) || own.has(idx.getY(i))) { (m.material as THREE.Material).side = THREE.DoubleSide; return; }
         }
       });
+    }
+
+    // a cape hangs from bones of its own, placed every frame by a cloth simulation (render/cape.ts)
+    if (sk.cape) {
+      const bones: THREE.Object3D[] = [], rot: THREE.Quaternion[] = [];
+      for (const name of sk.cape.bones) {
+        const bone = sks.bones.find((b) => b.name === name);
+        if (!bone) break;
+        const q = new THREE.Quaternion();
+        sks.boneInverses[sks.bones.indexOf(bone)].clone().invert().decompose(new THREE.Vector3(), q, new THREE.Vector3());
+        boneRoot.add(bone);
+        bones.push(bone);
+        rot.push(q);
+      }
+      if (bones.length === sk.cape.bones.length) this.cape = new CapeCloth(sk.cape, bones, sk.cape.rest.map(V), rot, P, sk.radii ?? {}, sk.height);
+      else console.warn('[models] cape bones missing in', asset.id);
     }
 
     // ---- proportions
@@ -412,6 +434,11 @@ export class ModelSkin {
     for (const fg of this.fingers) fg.bone.quaternion.setFromAxisAngle(fg.axis, fg.angle * this.grip[fg.hand]).multiply(fg.rest);
     this.faceAnchor.position.copy(tv.copy(this.faceOff).applyQuaternion(d[J.head])).add(p[J.head]);
     this.faceAnchor.position.y += this.lift;
+    if (this.cape) {
+      // (the cloth swings in the world: it needs to know where this body is in it)
+      this.root.updateWorldMatrix(true, false);
+      this.cape.update(dt, p, d, bindPos, this.root.matrixWorld, this.lift);
+    }
   }
 
   dispose() {

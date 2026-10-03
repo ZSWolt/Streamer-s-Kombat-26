@@ -8,7 +8,7 @@ every part, taken before decimation) and <id>.json (height, part classes, contac
 Stage 2 (rig.py) fits the skeleton, straightens the body into a neutral pose, skins and exports it.
 
 All analysis is done in glTF space: +X = character's left, +Y = up, +Z = front (same as the game rig).
-Overrides JSON (optional): {"parts": {"tripo_part_5": "armR"}}   classes: torso torso2 head headacc armL armR leg shoe acc
+Overrides JSON (optional): {"parts": {"tripo_part_5": "armR"}}   classes: torso torso2 head headacc armL armR leg shoe cape acc
 """
 import json
 import os
@@ -259,6 +259,14 @@ for p in list(head_group):
         p.cls = 'torso2'
 head = max(head_group, key=lambda p: p.tris)
 head.cls = 'head'
+# a cape: tall, thin sheets hanging from the shoulders down the back, behind the trunk and the legs (the panels of
+# the cape, and the slivers Tripo cut between them). They have no place on the skeleton; the game hangs them from
+# the shoulders and lets them swing (see rig.py rig_cape and client/src/render/model.ts).
+body_z = float(np.median([p.c[2] for p in P if p.cls is None and 0.2 * H < p.c[1] < 0.75 * H]))
+for p in P:
+    # (from the shoulders to below the seat: the back of a jacket ends at the hips)
+    if p.cls is None and p.hi[1] > 0.6 * H and 0.04 * H < p.lo[1] < 0.4 * H and p.c[2] < body_z - 0.05 * H:
+        p.cls = 'cape'
 # torso: the chest-height part the neck goes into (a wide trouser leg can have a bigger bounding box)
 band = [p for p in P if p.cls is None and 0.42 * H < p.c[1] < 0.76 * H]
 torso = max(band, key=lambda p: ((iface(head, p) or {'n': 0})['n'], p.tris))
@@ -272,8 +280,10 @@ for p in sorted(head_group, key=lambda p: -p.c[1]):
         p.cls = 'headacc'
 # shoes: the biggest low part on each side; soles and laces split off from them ride along
 low = [p for p in P if p.cls is None and p.hi[1] < 0.17 * H]
-shoeR = max([p for p in low if p.c[0] < mid_x], key=lambda p: p.tris, default=None)
-shoeL = max([p for p in low if p.c[0] >= mid_x], key=lambda p: p.tris, default=None)
+# (boots reach higher: the biggest part on the floor on that side that ends below the knee)
+boots = [p for p in P if p.cls is None and p.lo[1] < 0.03 * H and p.hi[1] < 0.32 * H]
+shoeR = max([p for p in low if p.c[0] < mid_x] or [p for p in boots if p.c[0] < mid_x], key=lambda p: p.tris, default=None)
+shoeL = max([p for p in low if p.c[0] >= mid_x] or [p for p in boots if p.c[0] >= mid_x], key=lambda p: p.tris, default=None)
 assert shoeR is not None and shoeL is not None, 'expected two shoe parts'
 shoeR.cls, shoeR.side, shoeL.cls, shoeL.side = 'shoe', 'R', 'shoe', 'L'
 for extra in low:
@@ -346,6 +356,8 @@ for name, cls in OVR.get('parts', {}).items():  # manual fixes
         p.cls, p.side = cls, None
 for p in P:
     log(f'part {p.name:20s} {p.cls:8s}{p.side or " "} tris={p.tris:7d} c=({p.c[0]:+.3f},{p.c[1]:.3f},{p.c[2]:+.3f})')
+for p in [p for p in P if p.cls == 'cape']:
+    log(f'cape {p.name}: meets ' + ', '.join(f'{q.name} ({q.cls}, {iface(p, q)["n"]})' for q in P if q is not p and iface(p, q)))
 
 # ------------------------------------------------------------------ hands with fingers cut loose
 # Fingers that are parts of their own tell where each finger is, which is what closing the hand needs. But cut
@@ -441,7 +453,7 @@ FACE_BOX = {}
 FACE = face_parts() if OVR.get('keepFace', True) else []
 
 # ------------------------------------------------------------------ decimate
-budget_w = {p.name: (p.tris ** 0.8) * (2.6 if p.cls == 'head' else 2.4 if getattr(p, 'fingers', False) else 1.25 if p.cls == 'arm' else 1.0) for p in P}
+budget_w = {p.name: (p.tris ** 0.8) * (2.6 if p.cls == 'head' else 2.4 if getattr(p, 'fingers', False) else 1.25 if p.cls == 'arm' else 0.6 if p.cls == 'cape' else 1.0) for p in P}
 bw = sum(budget_w.values())
 for p in P:
     want = max(6500 if getattr(p, 'fingers', False) else 1200, TARGET_TRIS * budget_w[p.name] / bw)  # fingers need the triangles

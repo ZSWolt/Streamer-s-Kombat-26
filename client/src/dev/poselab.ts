@@ -15,6 +15,7 @@
 //   bg     background colour (hex without #)
 //   mat    back = back faces in red | lids = the dark insides of openings in magenta | wire | double
 //   only   draw only the meshes whose names start with one of these (only=leg_2,torso)
+//   settle let a cape hang (and settle) for this many frames in each pose before the picture is taken
 //   shot   save the sheet to tools/shots/<shot>.jpg through the dev server
 import * as THREE from 'three';
 import { ROSTER, fighterIndex } from '../data/roster';
@@ -85,6 +86,8 @@ async function main() {
       rig.root.position.y += (rows - 1 - row) * cellH + cellH * 0.42 - w.y;
     }
     scene.add(rig.root);
+    const settle = Number(q.get('settle') ?? 0); // a cape (render/cape.ts) hangs for this many frames in the pose first
+    if (rig.skin && settle > 0) for (let k = 0; k < settle; k++) rig.skin.update(1 / 60);
     ((window as unknown as { rigs: unknown[] }).rigs ??= []).push(rig);
     const line = new THREE.Mesh(new THREE.PlaneGeometry(cellW * 0.9, 0.012), new THREE.MeshBasicMaterial({ color: '#566' }));
     line.position.set((col + 0.5) * cellW, (rows - 1 - row) * cellH + 0.12, -3);
