@@ -13,7 +13,7 @@
  },
  "philip": {
   "file": "philip.glb",
-  "v": "f2e9e0aa"
+  "v": "f675112c"
  },
  "ronengg": {
   "file": "ronengg.glb",
@@ -58,5 +58,13 @@
  "superbibi": {
   "file": "superbibi.glb",
   "v": "76fe47eb"
+ },
+ "realbigiii": {
+  "file": "realbigiii.glb",
+  "v": "844991bc"
+ },
+ "shaliachpizza": {
+  "file": "shaliachpizza.glb",
+  "v": "ef54db91"
  }
 }

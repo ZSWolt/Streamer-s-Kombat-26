@@ -4,7 +4,7 @@ import { audio } from '../audio/AudioEngine';
 import { announcer, voices } from '../audio/announcer';
 import { music } from '../audio/music';
 import { ROSTER } from '../data/roster';
-import { MV, spSlot } from '../sim/moves';
+import { MV, movesFor, spSlot } from '../sim/moves';
 import * as C from '../sim/constants';
 import { cloneMatch, createMatch, step } from '../sim/match';
 import type { MatchConfig, MatchState, SimEvent } from '../sim/types';
@@ -299,6 +299,15 @@ export class Battle {
         if (vfx === 'record') this.vfx.floatText(x, y + 0.7, '♪ ' + RECORD_SONGS[Math.floor(Math.random() * RECORD_SONGS.length)][0], '#9ad8ff', 0.42);
         break;
       }
+      case 'kfcbucket': audio.sfx('splat', pan); this.vfx.hitSpark(x, y, 1, false, '#ffb347'); this.vfx.burst(x, y, '🍗', 4, 5, 0.4); break;
+      case 'kfcdrop': audio.sfx('splat', pan, 1.3); audio.sfx('slam', pan, 0.6); this.vfx.burst(x, Math.max(0.6, y), '🍗', 10, 7, 0.5); break;
+      case 'bars': this.vfx.burst(x, y, '🎤', 2, 4, 0.36); this.vfx.burst(x, y, '🔥', 2, 4, 0.3); break;
+      case 'micdrop': audio.sfx('slam', pan); audio.sfx('scratch', pan, 0.7); this.vfx.burst(x, Math.max(0.6, y), '🎤', 3, 5, 0.45); this.vfx.floatText(x, 2.1, 'MIC DROP', '#53fc18', 0.5); break;
+      case 'balloon': audio.sfx('pop', pan); this.vfx.burst(x, y, '🎈', 3, 4, 0.35); this.vfx.burst(x, y, '✨', 4, 5, 0.3); break;
+      case 'hotchip': audio.sfx('fire', pan, 0.6); this.vfx.burst(x, y, '🔥', 4, 4, 0.4); break;
+      case 'firebreath': this.vfx.burst(x, y, '🔥', 5, 5, 0.45); break;
+      case 'sewer': audio.sfx('splat', pan, 0.8); this.vfx.burst(x, 0.5, '💨', 6, 4, 0.55); break;
+      case 'dog': audio.sfx('bark', pan); break;
     }
   }
 
@@ -346,6 +355,13 @@ export class Battle {
         const x = (e.x ?? 0) / 1000, y = Math.max(0.4, (e.y ?? 1000) / 1000);
         this.vfx.hitSpark(x, y, heavy, false);
         if (e.s?.startsWith('proj:')) this.propImpact(e.s.slice(5), x, y);
+        else {
+          // a swing with something in the fist leaves its mark (render/FighterView.ts HELD)
+          const by = m.f[1 - e.p!];
+          const held = by.st === St.Attack ? movesFor(by.char)[by.move]?.special?.spec.vfx : undefined;
+          if (held === 'chickenbat') { A.sfx('splat', pan(e.x), 0.9); this.vfx.burst(x, y, '🍗', 6, 7, 0.45); this.vfx.floatText(x, y + 0.8, 'BONK', '#ffb347', 0.5); }
+          if (held === 'banhammer') this.vfx.floatText(x, y + 0.8, 'BANNED', '#a070ff', 0.55);
+        }
         A.sfx(heavy >= 3 ? 'hitX' : heavy === 2 ? 'hitH' : heavy === 1 ? 'hitM' : 'hitL', pan(e.x));
         this.cam.shake((0.25 + heavy * 0.25) * fx);
         if (heavy >= 2) { this.r.kickChroma(0.006 * fx); this.cam.punch(0.25); this.stage.pulse(0.6); }
@@ -391,6 +407,9 @@ export class Battle {
         if (e.s === 'car') A.sfx('engine');
         if (e.s === 'creep') A.sfx('guitar', pan(m.f[e.p!].x));
         if (e.s === 'record') A.sfx('scratch', pan(m.f[e.p!].x), 0.8);
+        if (e.s === 'dog') A.sfx('bark', pan(m.f[e.p!].x));
+        if (e.s === 'firebreath' || e.s === 'hotchip') A.sfx('fire', pan(m.f[e.p!].x), e.s === 'hotchip' ? 0.5 : 1);
+        if (e.s === 'bars') A.sfx('scratch', pan(m.f[e.p!].x), 0.5);
         if (e.s === 'indegear') this.vfx.floatText(m.f[e.p!].x / 1000, 1.95, 'תקנו מוצרים!', '#27a6ff', 0.4);
         break;
       case 'projDie':

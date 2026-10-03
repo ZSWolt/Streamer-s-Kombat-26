@@ -527,6 +527,219 @@ export function vinylRecord(kind = 0): THREE.Group {
   return g;
 }
 
+// ---------------------------------------------------------------- Biggie (fried chicken), Yakir, Yanivo, Teddy
+
+/** Crispy fried coating: golden brown, knobbly, with darker crags. */
+const crispy = () => mat('crispy', () => new THREE.MeshStandardMaterial({
+  roughness: 0.75,
+  map: canvasTex(256, 256, (c, w, h) => {
+    let sd = 17;
+    const r = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
+    c.fillStyle = '#c98a35'; c.fillRect(0, 0, w, h);
+    for (let i = 0; i < 260; i++) {
+      c.globalAlpha = 0.25 + r() * 0.5;
+      c.fillStyle = r() < 0.5 ? '#e7ae55' : r() < 0.7 ? '#8a5418' : '#f2c56d';
+      c.beginPath(); c.arc(r() * w, r() * h, 3 + r() * 12, 0, Math.PI * 2); c.fill();
+    }
+    c.globalAlpha = 1;
+  }),
+  bumpMap: canvasTex(128, 128, (c, w, h) => {
+    let sd = 29;
+    const r = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
+    c.fillStyle = '#777'; c.fillRect(0, 0, w, h);
+    for (let i = 0; i < 160; i++) { c.fillStyle = r() < 0.5 ? '#bbb' : '#333'; c.beginPath(); c.arc(r() * w, r() * h, 2 + r() * 6, 0, Math.PI * 2); c.fill(); }
+  }),
+  bumpScale: 2.2,
+}));
+const boneMat = () => mat('chickenBone', () => new THREE.MeshStandardMaterial({ color: '#f1e6cf', roughness: 0.55 }));
+
+/** A fried drumstick, one unit from the knob of the bone to the end of the meat, along +y. */
+export function drumstick(): THREE.Group {
+  const g = new THREE.Group();
+  const meat = new THREE.Mesh(geo('dsMeat', () => {
+    const s = new THREE.SphereGeometry(0.5, 20, 14);
+    const pos = s.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) { // a teardrop: fat at the end, narrowing to the bone
+      const y = pos.getY(i);
+      const k = 0.62 + 0.38 * Math.min(1, (y + 0.5) * 1.1);
+      pos.setXYZ(i, pos.getX(i) * k, y, pos.getZ(i) * k);
+    }
+    s.computeVertexNormals();
+    return s;
+  }), crispy());
+  meat.scale.set(0.42, 0.62, 0.42);
+  meat.position.y = 0.66;
+  const bone = new THREE.Mesh(geo('dsBone', () => new THREE.CylinderGeometry(0.045, 0.055, 0.5, 10)), boneMat());
+  bone.position.y = 0.27;
+  const knob = geo('dsKnob', () => new THREE.SphereGeometry(0.06, 10, 8));
+  for (const sx of [-1, 1]) {
+    const k = new THREE.Mesh(knob, boneMat());
+    k.position.set(sx * 0.04, 0.03, 0);
+    g.add(k);
+  }
+  g.add(meat, bone);
+  return shadowed(g);
+}
+
+/** Biggie's chicken bat: a drumstick as long as a baseball bat. Held at the bottom of the bone (the origin), the meat along +y. */
+export function chickenBat(): THREE.Group {
+  const g = new THREE.Group();
+  const d = drumstick();
+  d.scale.set(1.35, 1, 1.35);
+  g.add(d);
+  return g;
+}
+
+/** A bucket of fried chicken ("דיל"): red and white stripes, drumsticks sticking out of the top; about one unit tall. */
+export function kfcBucket(): THREE.Group {
+  const g = new THREE.Group();
+  const side = mat('kfcSide', () => new THREE.MeshStandardMaterial({
+    roughness: 0.6, side: THREE.DoubleSide,
+    map: canvasTex(1024, 512, (c, w, h) => {
+      for (let i = 0; i < 16; i++) { c.fillStyle = i % 2 ? '#ffffff' : '#c8102e'; c.fillRect((i * w) / 16, 0, w / 16 + 1, h); }
+      c.fillStyle = '#c8102e'; c.fillRect(0, 0, w, h * 0.3);
+      c.fillStyle = '#ffffff'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.font = '900 120px "Bebas Neue", Impact, sans-serif';
+      for (const x of [w * 0.25, w * 0.75]) c.fillText('KFC', x, h * 0.16);
+      c.fillStyle = '#c8102e';
+      c.font = '900 64px "Heebo", Arial, sans-serif';
+      c.strokeStyle = '#ffffff'; c.lineWidth = 10;
+      for (const x of [w * 0.25, w * 0.75]) { c.strokeText('ביגי דיל', x, h * 0.62); c.fillText('ביגי דיל', x, h * 0.62); }
+    }),
+  }));
+  const body = new THREE.Mesh(geo('kfcBody', () => new THREE.CylinderGeometry(0.4, 0.3, 0.62, 32, 1, true)), side);
+  body.position.y = -0.12;
+  const base = new THREE.Mesh(geo('kfcBase', () => new THREE.CircleGeometry(0.3, 28)), mat('kfcWhite', () => new THREE.MeshStandardMaterial({ color: '#f4f4f4', roughness: 0.6, side: THREE.DoubleSide })));
+  base.rotation.x = Math.PI / 2;
+  base.position.y = -0.43;
+  const fill = new THREE.Mesh(geo('kfcFill', () => new THREE.CircleGeometry(0.37, 28)), crispy());
+  fill.rotation.x = -Math.PI / 2;
+  fill.position.y = 0.12;
+  g.add(body, base, fill);
+  for (let i = 0; i < 4; i++) { // drumsticks, bones up
+    const d = drumstick();
+    d.scale.setScalar(0.42);
+    const a = (i / 4) * Math.PI * 2 + 0.4;
+    d.rotation.set(Math.PI + Math.cos(a) * 0.35, 0, Math.sin(a) * 0.35);
+    d.position.set(Math.cos(a) * 0.17, 0.42, Math.sin(a) * 0.17);
+    g.add(d);
+  }
+  return shadowed(g);
+}
+
+/** The ban hammer: a purple head marked BAN on a dark handle; held at the bottom of the handle (the origin), along +y. */
+export function banHammer(): THREE.Group {
+  const g = new THREE.Group();
+  const handle = new THREE.Mesh(geo('banHandle', () => new THREE.CylinderGeometry(0.04, 0.05, 0.8, 10)), mat('banHandleM', () => new THREE.MeshStandardMaterial({ color: '#1d1726', roughness: 0.5 })));
+  handle.position.y = 0.4;
+  const face = mat('banFace', () => new THREE.MeshStandardMaterial({
+    roughness: 0.35, metalness: 0.2, emissive: '#3a1a7a', emissiveIntensity: 0.3,
+    map: canvasTex(256, 128, (c, w, h) => {
+      c.fillStyle = '#7a3cff'; c.fillRect(0, 0, w, h);
+      c.fillStyle = '#ffffff'; c.font = '900 92px "Bebas Neue", Impact, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText('BAN', w / 2, h / 2 + 4);
+    }),
+  }));
+  const plain = mat('banPlain', () => new THREE.MeshStandardMaterial({ color: '#7a3cff', roughness: 0.35, metalness: 0.2 }));
+  const head = new THREE.Mesh(geo('banHead', () => new THREE.BoxGeometry(0.56, 0.3, 0.3)), [plain, plain, plain, plain, face, face]);
+  head.position.y = 0.86;
+  g.add(handle, head);
+  return shadowed(g);
+}
+
+/** A stage microphone, one unit tall: grille at the top. */
+export function microphone(): THREE.Group {
+  const g = new THREE.Group();
+  const dark = mat('micBody', () => new THREE.MeshStandardMaterial({ color: '#16161a', roughness: 0.35, metalness: 0.4 }));
+  const body = new THREE.Mesh(geo('micBodyG', () => new THREE.CylinderGeometry(0.11, 0.07, 0.72, 20)), dark);
+  body.position.y = -0.14;
+  const ring = new THREE.Mesh(geo('micRing', () => new THREE.CylinderGeometry(0.135, 0.12, 0.06, 24)), mat('micRingM', () => new THREE.MeshStandardMaterial({ color: '#d8d8de', roughness: 0.2, metalness: 0.95 })));
+  ring.position.y = 0.24;
+  const grille = new THREE.Mesh(geo('micGrille', () => new THREE.SphereGeometry(0.17, 24, 16)), mat('micGrilleM', () => new THREE.MeshStandardMaterial({
+    roughness: 0.3, metalness: 0.9,
+    map: canvasTex(256, 128, (c, w, h) => {
+      c.fillStyle = '#9a9aa2'; c.fillRect(0, 0, w, h);
+      c.strokeStyle = '#3a3a40'; c.lineWidth = 2;
+      for (let i = 0; i < w; i += 8) { c.beginPath(); c.moveTo(i, 0); c.lineTo(i + h, h); c.stroke(); c.beginPath(); c.moveTo(i, h); c.lineTo(i + h, 0); c.stroke(); }
+    }),
+  })));
+  grille.position.y = 0.38;
+  g.add(body, ring, grille);
+  return shadowed(g);
+}
+
+const BALLOON = ['#ff3b5c', '#3fc6ff', '#ffd23f', '#7be36b'];
+/** A party balloon (colour by `kind`) with its knot and a bit of string. */
+export function balloon(kind = 0): THREE.Group {
+  const col = BALLOON[((kind % BALLOON.length) + BALLOON.length) % BALLOON.length];
+  const g = new THREE.Group();
+  const skin = mat('balloon' + col, () => new THREE.MeshPhysicalMaterial({ color: col, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.1, sheen: 0.4 }));
+  const ball = new THREE.Mesh(geo('balloonG', () => {
+    const s = new THREE.SphereGeometry(0.36, 28, 20);
+    const pos = s.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) { const y = pos.getY(i); const k = 1 - Math.max(0, -y) * 0.55; pos.setXYZ(i, pos.getX(i) * k, y * 1.18, pos.getZ(i) * k); }
+    s.computeVertexNormals();
+    return s;
+  }), skin);
+  ball.position.y = 0.12;
+  const knot = new THREE.Mesh(geo('balloonKnot', () => new THREE.ConeGeometry(0.05, 0.08, 10)), skin);
+  knot.position.y = -0.34;
+  const string = new THREE.Mesh(geo('balloonString', () => new THREE.CylinderGeometry(0.006, 0.006, 0.4, 5)), mat('balloonStringM', () => new THREE.MeshStandardMaterial({ color: '#f2f2f2', roughness: 0.8 })));
+  string.position.y = -0.58;
+  string.rotation.z = 0.15;
+  g.add(ball, knot, string);
+  return shadowed(g);
+}
+
+/** The hot chip: a rolled tortilla chip, black-red with chilli dust. */
+export function hotChip(): THREE.Group {
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(geo('hotChipG', () => {
+    const s = new THREE.Shape();
+    s.moveTo(0, 0.5); s.quadraticCurveTo(0.08, 0.1, 0.45, -0.32); s.quadraticCurveTo(0, -0.42, -0.45, -0.32); s.quadraticCurveTo(-0.08, 0.1, 0, 0.5);
+    const e = new THREE.ExtrudeGeometry(s, { depth: 0.04, bevelEnabled: true, bevelThickness: 0.015, bevelSize: 0.015, bevelSegments: 2, curveSegments: 10 });
+    e.translate(0, 0, -0.02);
+    const pos = e.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) pos.setZ(i, pos.getZ(i) + 0.18 * pos.getX(i) * pos.getX(i)); // curled
+    e.computeVertexNormals();
+    return e;
+  }), mat('hotChipM', () => new THREE.MeshStandardMaterial({
+    roughness: 0.7,
+    map: canvasTex(128, 128, (c, w, h) => {
+      let sd = 41;
+      const r = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
+      c.fillStyle = '#2a0b12'; c.fillRect(0, 0, w, h);
+      for (let i = 0; i < 220; i++) { c.fillStyle = r() < 0.6 ? '#c0182b' : '#ff5a1f'; c.fillRect(r() * w, r() * h, 1 + r() * 3, 1 + r() * 3); }
+    }),
+  })));
+  g.add(m);
+  return shadowed(g);
+}
+
+/** An open manhole: the hole, and its iron cover flung up beside it. Sits on the floor at the origin. */
+export function manhole(): THREE.Group {
+  const g = new THREE.Group();
+  const hole = new THREE.Mesh(geo('mhHole', () => new THREE.CircleGeometry(0.5, 32)), mat('mhHoleM', () => new THREE.MeshBasicMaterial({ color: '#050506' })));
+  hole.rotation.x = -Math.PI / 2;
+  hole.position.y = 0.006;
+  const rim = new THREE.Mesh(geo('mhRim', () => new THREE.RingGeometry(0.5, 0.58, 32)), mat('mhRimM', () => new THREE.MeshStandardMaterial({ color: '#4a4a50', roughness: 0.6, metalness: 0.6 })));
+  rim.rotation.x = -Math.PI / 2;
+  rim.position.y = 0.008;
+  const cover = new THREE.Mesh(geo('mhCover', () => new THREE.CylinderGeometry(0.5, 0.5, 0.05, 32)), mat('mhCoverM', () => new THREE.MeshStandardMaterial({
+    roughness: 0.55, metalness: 0.7,
+    map: canvasTex(256, 256, (c, w, h) => {
+      c.fillStyle = '#55555c'; c.beginPath(); c.arc(w / 2, h / 2, w / 2, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = '#2e2e33'; c.lineWidth = 6;
+      for (let i = 30; i < w; i += 28) { c.beginPath(); c.moveTo(i, 0); c.lineTo(i, h); c.stroke(); c.beginPath(); c.moveTo(0, i); c.lineTo(w, i); c.stroke(); }
+      c.lineWidth = 10; c.beginPath(); c.arc(w / 2, h / 2, w / 2 - 8, 0, Math.PI * 2); c.stroke();
+    }),
+  })));
+  cover.rotation.set(Math.PI / 2 - 0.25, 0, 0);
+  cover.position.set(0.15, 0.5, -0.62);
+  g.add(hole, rim, cover);
+  return shadowed(g);
+}
+
 /** A green bud: a knobbly little cone with a few orange hairs and a leaf. */
 export function bud(kind = 0): THREE.Group {
   const g = new THREE.Group();

@@ -45,11 +45,13 @@ EN_SPOKEN = {
     'odedsvr': 'Oded S.V.R.', 'ronengg': 'Ronen G.G.', 'igz': 'I.G.Z.', 'liorslife': "Lior's Life", 'psyqr': 'Psy Q.R.',
     'sasivetheboiz': 'Sasi and the Boiz', 'devidtur': 'David Tur', 'pedrofederer': 'Pedro Federer', 'maorameleh': 'Maor', 'shilo': 'Shilo', 'philip': 'Philip', 'adam': 'Adam Drakes',
     'masterohad': 'Master Ohad', 'shotist': 'Shotist', 'inde': 'Inde', 'superbibi': 'Super Bibi', 'shaliachpizza': 'The Pizza Guy',
+    'realbigiii': 'Biggie', 'forceee': 'Force', 'yanivu': 'Yanivu', 'tedyr1': 'Teddy',
 }
 
 
 # Hebrew names the voice would otherwise misread get vowel points here.
-HE_SPOKEN = {'shotist': 'שׁוֹ', 'shilo': 'שִׁילֹה', 'superbibi': 'סוּפֶּר בִּיבִּי', 'shaliachpizza': 'שָׁלִיחַ פִּיצָה'}
+HE_SPOKEN = {'shotist': 'שׁוֹ', 'shilo': 'שִׁילֹה', 'superbibi': 'סוּפֶּר בִּיבִּי', 'shaliachpizza': 'שָׁלִיחַ פִּיצָה',
+             'realbigiii': 'בִּיגִי', 'forceee': 'יַקִּיר', 'yanivu': 'יָנִיבוֹ', 'tedyr1': 'טֶדִי'}
 
 
 def roster_names():

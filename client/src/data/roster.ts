@@ -260,7 +260,7 @@ export const ROSTER: Fighter[] = [
   {
     id: 'philip', name: 'PHILIP', he: 'פיליפ', title: 'THE BRAWLER', titleHe: 'הבריון', platform: 'guest', channel: '',
     accent: '#e8b646', stage: 5, stats: [2, 5, 4, 3],
-    look: { skin: '#6a4630', hair: '#c9a04a', hairStyle: 'long', beard: 'trim', beardColor: '#2a2018', shirt: '#cdb38a', jacket: '#3a2418', pants: '#1e1b1a', shoes: '#4a2f1c', build: 'burly', height: 1.05 },
+    look: { skin: '#d9a888', hair: '#5a3a22', hairStyle: 'sidepart', beard: 'mustache', beardColor: '#5a3420', shirt: '#d8c3a0', jacket: '#4a2c18', pants: '#2a2f3a', shoes: '#6a4024', build: 'burly', height: 1.05 },
     specials: [
       sp('U', 'אגרוף פטיש', 'HAMMER FIST', 'dashpunch', rush({ vfx: 'hammer', damage: 95, speed: 96, active: 14, armor: 1, knockdown: true })),
       sp('FU', 'חיבוק דוב', 'BEAR HUG', 'grab', { kind: 'grab', startup: 9, active: 4, recovery: 32, damage: 140, range: 860, knockdown: true, vfx: 'bearhug' }),
@@ -300,6 +300,62 @@ export const ROSTER: Fighter[] = [
     hype: DELIVERY_HYPE,
     intro: 'הזמנת פיצה? הגעתי.', win: 'בתיאבון. ואל תשכח טיפ.',
     skins: defaultSkins('#ff8a1f'),
+  },
+  {
+    // kick.com/realbigiii — "מת על עוף" (his bio)
+    id: 'realbigiii', name: 'REALBIGIII', he: 'ביגי', title: 'THE CHICKEN LOVER', titleHe: 'מת על עוף', platform: 'kick', channel: 'kick.com/realbigiii',
+    accent: '#7b3fe4', stage: 1, stats: [3, 5, 3, 3],
+    look: { skin: '#5e3b2a', hair: '#111', hairStyle: 'buzz', beard: 'stubble', beardColor: '#1a1210', headphones: '#151515', headphonesAccent: '#d0d0d0', shirt: '#5b2bd6', hoodie: true, pants: '#111114', shoes: '#141414', build: 'heavy', height: 1.02 },
+    specials: [
+      sp('U', 'דיל KFC', 'KFC DEAL', 'throw', shot({ vfx: 'kfcbucket', damage: 38, count: 2, spread: 26, speed: 80, size: [340, 380] })),
+      sp('FU', 'מחבט עוף', 'CHICKEN BAT', 'club', rush({ vfx: 'chickenbat', damage: 100, speed: 40, active: 12, knockdown: true, startup: 13 })),
+      sp('DU', 'באקט משפחתי', 'FAMILY BUCKET', 'point', { kind: 'drop', startup: 20, recovery: 24, damage: 100, knockdown: true, size: [620, 760], vfx: 'kfcdrop', hitstun: 30 }),
+    ],
+    hype: { name: 'מת על עוף', en: 'CHICKEN LOVER', vfx: 'chicken' },
+    intro: 'מישהו אמר עוף?', win: 'מת על עוף.',
+    skins: defaultSkins('#7b3fe4'),
+  },
+  {
+    // kick.com/forceee (Yakir) — freestyles, the Twitch ban, Minecraft speedruns
+    id: 'forceee', name: 'FORCEEE', he: 'יקיר', title: 'THE FREESTYLER', titleHe: 'הפריסטיילר', platform: 'kick', channel: 'kick.com/forceee',
+    accent: '#53fc18', stage: 4, stats: [4, 3, 3, 3],
+    look: { skin: '#5a3826', hair: '#1a1420', hairStyle: 'long', beard: 'stubble', beardColor: '#1a1210', shirt: '#f2f2f2', pants: '#1c1c22', shoes: '#f4f4f4', build: 'slim', height: 1 },
+    specials: [
+      sp('U', 'פריסטייל', 'FREESTYLE', 'point', shot({ vfx: 'bars', damage: 32, count: 3, spread: 20, speed: 86, size: [340, 200] })),
+      sp('FU', 'באן', 'BANNED', 'overhead', rush({ vfx: 'banhammer', damage: 95, speed: 100, active: 12, knockdown: true })),
+      sp('DU', 'מיק דרופ', 'MIC DROP', 'point', { kind: 'drop', startup: 20, recovery: 24, damage: 100, knockdown: true, size: [460, 760], vfx: 'micdrop', hitstun: 30 }),
+    ],
+    hype: { name: 'פריסטייל ב-3 בבוקר', en: '3AM FREESTYLE', vfx: 'freestyle' },
+    intro: 'תן ביט.', win: 'יא NPC.',
+    skins: defaultSkins('#53fc18'),
+  },
+  {
+    // kick.com/yanivu — Keep It UP!, Sewer Call, Moldrise ("אני חייב לעלות למעלה"), pack openings
+    id: 'yanivu', name: 'YANIVU', he: 'יניבו', title: 'THE UNBOXER', titleHe: 'הפותח', platform: 'kick', channel: 'kick.com/yanivu',
+    accent: '#3fc6ff', stage: 5, stats: [4, 3, 3, 3],
+    look: { skin: '#d9a98a', hair: '#141010', hairStyle: 'curly', beard: 'full', beardColor: '#141010', glasses: 'round', glassesColor: '#b9b9c0', headphones: '#141414', shirt: '#5d6470', pants: '#20232a', shoes: '#f0f0f0', build: 'normal', height: 1 },
+    specials: [
+      sp('U', 'Keep It UP', 'KEEP IT UP', 'lob', shot({ vfx: 'balloon', damage: 42, speed: 36, vy: 26, gravity: 1, life: 170, stun: 30, size: [360, 440] })),
+      sp('FU', 'חייב לעלות למעלה', 'MUST GO UP', 'uppercut', upper({ vfx: 'moldrise', damage: 95 })),
+      sp('DU', 'ביוב', 'SEWER CALL', 'stomp', { kind: 'trap', startup: 18, recovery: 26, damage: 85, level: 'low', knockdown: true, range: 850, size: [560, 320], life: 22, vfx: 'sewer' }),
+    ],
+    hype: { name: 'הפתיחה הכי מטורפת', en: 'CRAZIEST OPENING', vfx: 'unbox' },
+    intro: 'הפתיחה הכי מטורפת שהייתה לי!', win: 'אני חייב לעלות למעלה.',
+    skins: defaultSkins('#3fc6ff'),
+  },
+  {
+    // kick.com/tedyr1 — "אין לי מושג מה אני עושה / תלחצו על העוקב, הכלב של השכנים שלי ממליץ" (his bio), the hot chip challenge
+    id: 'tedyr1', name: 'TEDYR1', he: 'טדי', title: 'THE WILDCARD', titleHe: "הג'וקר", platform: 'kick', channel: 'kick.com/tedyr1',
+    accent: '#ffb300', stage: 2, stats: [4, 3, 2, 4],
+    look: { skin: '#563626', hair: '#111', hairStyle: 'buzz', beard: 'stubble', beardColor: '#1a1210', glasses: 'rect', glassesColor: '#111', headphones: '#121212', shirt: '#151515', hoodie: true, pants: '#151518', shoes: '#f0f0f0', build: 'normal', height: 1 },
+    specials: [
+      sp('U', "צ'יפס חריף", 'HOT CHIP', 'throw', shot({ vfx: 'hotchip', damage: 26, count: 3, spread: 22, speed: 96, size: [240, 240] })),
+      sp('FU', 'הכלב של השכנים', "NEIGHBOR'S DOG", 'summon', { kind: 'summon', startup: 16, recovery: 30, damage: 95, speed: 118, size: [900, 700], knockdown: true, life: 110, hitstun: 30, level: 'mid', vfx: 'dog' }),
+      sp('DU', "אתגר הצ'יפס", 'HOT CHIP CHALLENGE', 'scream', shot({ vfx: 'firebreath', damage: 62, speed: 54, life: 34, stun: 28, size: [700, 900] })),
+    ],
+    hype: { name: 'אין לי מושג מה אני עושה', en: 'NO IDEA WHAT I AM DOING', vfx: 'noidea' },
+    intro: 'אין לי מושג מה אני עושה.', win: 'אין לי מושג איך עשיתי את זה.',
+    skins: defaultSkins('#ffb300'),
   },
 ];
 

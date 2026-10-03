@@ -15,7 +15,7 @@ import { logoEl } from '../ui/logo';
 import { portraitUrl } from '../ui/portraits';
 import { stone } from '../ui/stone';
 
-const ORDER = ['odedsvr', 'ronengg', 'inde', 'igz', 'liorslife', 'psyqr', 'maorameleh', 'masterohad', 'pedrofederer', 'devidtur', 'sasivetheboiz', 'shotist', 'shilo', 'philip', 'adam', 'superbibi', 'shaliachpizza'];
+const ORDER = ['odedsvr', 'ronengg', 'inde', 'igz', 'liorslife', 'psyqr', 'maorameleh', 'masterohad', 'pedrofederer', 'devidtur', 'sasivetheboiz', 'shotist', 'shilo', 'philip', 'adam', 'superbibi', 'shaliachpizza', 'realbigiii', 'forceee', 'yanivu', 'tedyr1'];
 const SHOT = 2.35;
 const SHOWCASE = ['projectile', 'summon', 'drop', 'rush', 'uppercut', 'slam', 'trap'];
 

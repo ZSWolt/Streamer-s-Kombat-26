@@ -5,9 +5,20 @@ import { movesFor } from '../sim/moves';
 import type { FighterState } from '../sim/types';
 import { St } from '../sim/types';
 import * as P from './pose';
+import { banHammer, chickenBat } from './props';
 import { applyPose, buildRig, type RigParts } from './rig';
 
 const YAW = Math.PI / 2 - 0.42;
+/** Specials swung with something in the fist (by the special's vfx): the thing, and how long it is (of the fighter's height). */
+const HELD: Record<string, { make: () => THREE.Object3D; len: number }> = {
+  chickenbat: { make: chickenBat, len: 0.5 },
+  banhammer: { make: banHammer, len: 0.42 },
+};
+const hv1 = new THREE.Vector3();
+const hv2 = new THREE.Vector3();
+const hq = new THREE.Quaternion();
+const hq2 = new THREE.Quaternion();
+const UPV = new THREE.Vector3(0, 1, 0);
 
 export interface FighterVisual {
   root: THREE.Object3D;
@@ -46,6 +57,8 @@ export class ProceduralFighterView implements FighterVisual {
   fx = { tint: new THREE.Color('#000000'), tintAmt: 0, squash: 1, shrink: 1, hidden: false, offsetY: 0, offsetX: 0, spin: 0 };
   private baseScale: number;
   private lastTint = -1;
+  private held: THREE.Object3D | null = null;
+  private heldKey = '';
 
   constructor(charIdx: number, skin = 0) {
     this.charIdx = charIdx;
@@ -325,6 +338,37 @@ export class ProceduralFighterView implements FighterVisual {
       skin.grip[1] = tmp2[P.EX_GRIPR];
       skin.update(dt);
     }
+    this.holdProp(f);
+  }
+
+  /** A special swung with something in the fist (a chicken bat, a ban hammer): it is in the right hand, along the
+   * forearm, from the wind-up until the swing is done. */
+  private holdProp(f: FighterState) {
+    const mv = f.st === St.Attack && !this.override ? movesFor(f.char)[f.move] : undefined;
+    const key = mv?.special?.spec.vfx ?? '';
+    const h = HELD[key];
+    if (!h || !mv || f.moveFrame > mv.startup + mv.active + mv.recovery * 0.6) {
+      if (this.held) this.held.visible = false;
+      return;
+    }
+    if (!this.held || this.heldKey !== key) {
+      if (this.held) this.root.remove(this.held);
+      this.held = h.make();
+      this.heldKey = key;
+      this.root.add(this.held);
+    }
+    const hand = hv1, elbow = hv2;
+    if (this.rig.skin) { this.rig.skin.jointWorld(P.J.handR, hand); this.rig.skin.jointWorld(P.J.foreR, elbow); }
+    else { this.rig.joints[P.J.handR].getWorldPosition(hand); this.rig.joints[P.J.foreR].getWorldPosition(elbow); }
+    const tall = this.rig.height * Math.abs(this.rig.body.scale.y);
+    const dir = elbow.sub(hand).negate().normalize(); // elbow -> wrist, on out through the fist
+    hand.addScaledVector(dir, tall * 0.035);
+    this.root.updateWorldMatrix(true, false);
+    this.held.position.copy(this.root.worldToLocal(hand));
+    this.root.getWorldQuaternion(hq2).invert();
+    this.held.quaternion.copy(hq2.multiply(hq.setFromUnitVectors(UPV, dir)));
+    this.held.scale.setScalar(tall * h.len);
+    this.held.visible = !this.fx.hidden;
   }
 
   dispose() {

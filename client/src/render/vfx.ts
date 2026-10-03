@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { agoraCoin, agorotShower, bud, cardPack, cluster, drawRecord, guitar, indeProduct, lettuce, perfumeBottle, pizzaPie, pizzaSlice, pokerChip, subathonBoard, vinylRecord, wineBottle } from './props';
+import { agoraCoin, agorotShower, balloon, bud, cardPack, cluster, drawRecord, guitar, hotChip, indeProduct, kfcBucket, lettuce, manhole, microphone, perfumeBottle, pizzaPie, pizzaSlice, pokerChip, subathonBoard, vinylRecord, wineBottle } from './props';
 import { canvasTex } from './textures';
 
 // Emoji billboards give every projectile/prop an instantly readable "chat emote" look.
@@ -68,9 +68,13 @@ export const PROJECTILE_EMOJI: Record<string, string> = {
   scream: '📢', concards: '🃏', chips: '🪙', indegear: '🎧', subathon: '⏱️', bottle: '🍾',
   agorot: '🪙', coinroll: '🪙', coinrain: '🪙', creep: '🎸', wine: '🍷', perfume: '🧴', lettuce: '🥬', batza: '🍃',
   pizza: '🍕', pizzapie: '🍕', record: '💿', records: '💿',
+  kfcbucket: '🍗', kfcdrop: '🍗', bars: '🎤', micdrop: '🎤', balloon: '🎈', sewer: '🕳️', hotchip: '🌶️', firebreath: '🔥', dog: '🐕',
 };
 /** projectiles drawn as real 3D props (render/props.ts) instead of emoji billboards */
-const PROP_KEYS = new Set(['concards', 'chips', 'indegear', 'subathon', 'agorot', 'coinroll', 'coinrain', 'creep', 'wine', 'perfume', 'lettuce', 'batza', 'pizza', 'pizzapie', 'record', 'records']);
+const PROP_KEYS = new Set(['concards', 'chips', 'indegear', 'subathon', 'agorot', 'coinroll', 'coinrain', 'creep', 'wine', 'perfume', 'lettuce', 'batza', 'pizza', 'pizzapie', 'record', 'records',
+  'kfcbucket', 'kfcdrop', 'micdrop', 'balloon', 'hotchip', 'sewer']);
+/** what a freestyle throws: the words themselves */
+const BARS = ['BARS', 'FLOW', 'RHYME', '16 BARS'];
 
 interface Particle {
   obj: THREE.Object3D;
@@ -213,7 +217,7 @@ export class Vfx {
       let o = this.projMeshes.get(p.id);
       const key = p.vfx.split(':')[0];
       if (!o) {
-        o = PROP_KEYS.has(key) ? this.makeProp(key, p.w / 1000, p.h / 1000, p.id, p.vfx) : this.makeProjectile(key, p.w / 1000, p.h / 1000, p.kind);
+        o = PROP_KEYS.has(key) ? this.makeProp(key, p.w / 1000, p.h / 1000, p.id, p.vfx) : this.makeProjectile(key, p.w / 1000, p.h / 1000, p.kind, p.id);
         this.projMeshes.set(p.id, o);
         this.group.add(o);
       }
@@ -238,6 +242,13 @@ export class Vfx {
           else if (key === 'pizza') o3.rotation.set(-0.75 + Math.sin(a * 0.06 + ph) * 0.3, Math.sin(a * 0.045 + ph) * 0.35, -flip * (a * 0.17 + ph));
           else if (key === 'pizzapie') o3.rotation.set(-0.85 + Math.sin(a * 0.05) * 0.15, Math.sin(a * 0.04) * 0.2, -flip * a * 0.1);
           else if (key === 'record' || key === 'records') o3.rotation.set(-0.95 + Math.sin(a * 0.07 + ph) * 0.12, Math.sin(a * 0.05 + ph) * 0.15, -flip * (a * 0.21 + ph));
+          // a bucket tumbles, a big one coming down only rocks; a microphone falls head first; a balloon bobs
+          else if (key === 'kfcbucket') o3.rotation.set(Math.sin(a * 0.05 + ph) * 0.4, a * 0.06 + ph, -flip * a * 0.08);
+          else if (key === 'kfcdrop') o3.rotation.set(Math.sin(a * 0.05) * 0.15, a * 0.03, Math.sin(a * 0.04) * 0.12);
+          else if (key === 'micdrop') o3.rotation.set(Math.PI + Math.sin(a * 0.05) * 0.2, a * 0.05, Math.sin(a * 0.06) * 0.15);
+          else if (key === 'balloon') o3.rotation.set(Math.sin(a * 0.04 + ph) * 0.15, Math.sin(a * 0.03 + ph) * 0.3, Math.sin(a * 0.05 + ph) * 0.2);
+          else if (key === 'hotchip') o3.rotation.set(a * 0.12 + ph, a * 0.19, -flip * a * 0.07);
+          else if (key === 'sewer') o3.rotation.set(0, 0, 0);
           else o3.rotation.set(Math.sin(a * 0.05) * 0.08, Math.sin(a * 0.04) * 0.18, Math.sin(a * 0.07) * 0.06);
         };
         if (key === 'coinrain') {
@@ -245,10 +256,14 @@ export class Vfx {
         } else if (prop.userData.cluster) {
           for (const c of prop.children) tumble(c, p.id * 1.7 + (c.userData.ph as number));
         } else tumble(prop, p.id * 1.7);
-        const notes = key === 'creep' ? 0.16 : key === 'record' ? 0.12 : key === 'records' ? 0.3 : 0;
-        if (notes && t - ((o.userData.note as number) ?? 0) > notes) { // the guitar and the records leave a trail of notes
+        const notes = key === 'creep' ? 0.16 : key === 'record' ? 0.12 : key === 'records' ? 0.3 : key === 'hotchip' ? 0.09 : 0;
+        if (notes && t - ((o.userData.note as number) ?? 0) > notes) { // the guitar and the records leave a trail of notes, the hot chip of flames
           o.userData.note = t;
-          this.emote(p.x / 1000 - flip * 0.3, p.y / 1000 + 0.2, Math.random() < 0.5 ? '🎵' : '🎶', 0.34);
+          this.emote(p.x / 1000 - flip * 0.3, p.y / 1000 + 0.2, key === 'hotchip' ? '🔥' : Math.random() < 0.5 ? '🎵' : '🎶', key === 'hotchip' ? 0.26 : 0.34);
+        }
+        if (key === 'sewer' && t - ((o.userData.note as number) ?? 0) > 0.12) { // fumes out of the sewer
+          o.userData.note = t;
+          this.emote(p.x / 1000 + (Math.random() - 0.5) * 0.4, 0.3, '💨', 0.4);
         }
         prop.tick?.(t);
       }
@@ -257,8 +272,17 @@ export class Vfx {
         const spin = o.userData.spin as number;
         spr.material.rotation = spin ? t * spin * flip : 0;
         const base = o.userData.base as number;
-        spr.scale.set(base * (key === 'car' ? -flip : 1), base, 1);
+        spr.scale.set(base * (key === 'car' || key === 'dog' ? -flip : 1) * ((o.userData.wide as number | undefined) ?? 1), base, 1); // (the car and the dog face left)
         if (key === 'tornado' || key === 'scream' || key === 'hypno') spr.material.rotation = t * 10;
+        if (key === 'dog') spr.position.y = Math.abs(Math.sin(t * 14)) * base * 0.06; // running
+      }
+      if (key === 'firebreath') { // the flames flicker and roll forward
+        for (const [k, c] of (o.children as THREE.Sprite[]).entries()) {
+          if (!c.userData.flame) continue;
+          const s = (c.userData.flame as number) * (0.85 + 0.25 * Math.sin(t * 30 + k * 2.1));
+          c.scale.set(s, s, 1);
+          c.material.rotation = Math.sin(t * 12 + k) * 0.3;
+        }
       }
       const halo = o.userData.halo as THREE.Sprite | undefined;
       if (halo) halo.material.opacity = prop ? 0.2 + Math.sin(t * 20) * 0.06 : 0.6 + Math.sin(t * 20) * 0.2;
@@ -292,10 +316,17 @@ export class Vfx {
     else if (key === 'pizza') { prop = pizzaSlice(); prop.scale.setScalar(size * 1.35); }
     else if (key === 'pizzapie') { prop = pizzaPie(); prop.scale.setScalar(size * 1.3); }
     else if (key === 'record' || key === 'records') { prop = vinylRecord(id); prop.scale.setScalar(size * (key === 'record' ? 1.55 : 1.7)); }
+    else if (key === 'kfcbucket') { prop = kfcBucket(); prop.scale.setScalar(size * 1.25); }
+    else if (key === 'kfcdrop') { prop = kfcBucket(); prop.scale.setScalar(size * 1.2); }
+    else if (key === 'micdrop') { prop = microphone(); prop.scale.setScalar(size * 1.2); }
+    else if (key === 'balloon') { prop = balloon(id); prop.scale.setScalar(size * 1.2); }
+    else if (key === 'hotchip') { prop = hotChip(); prop.scale.setScalar(size * 1.2); }
+    else if (key === 'sewer') { const g2 = new THREE.Group(); const mh = manhole(); mh.position.y = -h / 2 / (w * 1.1); g2.add(mh); g2.scale.setScalar(w * 1.1); prop = g2; } // (on the floor)
     else { prop = subathonBoard(); prop.scale.setScalar(size * 1.9); }
-    if (key !== 'subathon' && key !== 'coinrain') {
+    if (key !== 'subathon' && key !== 'coinrain' && key !== 'sewer' && key !== 'kfcdrop' && key !== 'micdrop') {
       const coin = key === 'chips' || key === 'agorot' || key === 'coinroll';
-      const glow: Record<string, string> = { indegear: '#27a6ff', creep: '#ffb347', wine: '#c2183a', perfume: '#d58cff', lettuce: '#8ee05a', batza: '#6fd040', pizza: '#c98a3a', pizzapie: '#c98a3a', record: '#3d5f80', records: '#3d5f80' }; // dim: the glow is drawn over the prop, and would bleach a black record
+      const glow: Record<string, string> = { indegear: '#27a6ff', creep: '#ffb347', wine: '#c2183a', perfume: '#d58cff', lettuce: '#8ee05a', batza: '#6fd040', pizza: '#c98a3a', pizzapie: '#c98a3a', record: '#3d5f80', records: '#3d5f80', // dim: the glow is drawn over the prop, and would bleach a black record
+        kfcbucket: '#c98a3a', balloon: '#6a6a7a', hotchip: '#ff4a1a' };
       const halo = this.sprite(this.sparkTex, glow[key] ?? (coin ? '#ffd27a' : '#ff5fd2'), size * 1.7);
       halo.material.opacity = 0.2;
       halo.position.z = -0.15;
@@ -307,13 +338,32 @@ export class Vfx {
     return g;
   }
 
-  private makeProjectile(key: string, w: number, h: number, kind: string): THREE.Object3D {
+  private makeProjectile(key: string, w: number, h: number, kind: string, id = 0): THREE.Object3D {
     const g = new THREE.Group();
     const e = PROJECTILE_EMOJI[key] ?? '✨';
     const size = Math.max(w, h) * (kind === 'summon' ? 1.05 : 1.25);
-    const halo = this.sprite(this.sparkTex, key === 'hypno' ? '#b56bff' : '#ffd27a', size * 1.5);
+    const halo = this.sprite(this.sparkTex, key === 'hypno' ? '#b56bff' : key === 'firebreath' ? '#ff5a1a' : key === 'bars' ? '#53fc18' : '#ffd27a', size * 1.5);
     halo.material.opacity = 0.7;
     if (kind !== 'summon' && kind !== 'drop') g.add(halo);
+    if (key === 'bars') { // a freestyle throws its words: glowing, with a microphone ahead of them
+      const word = this.sprite(textSpriteTex(BARS[id % BARS.length], '#eaffdf', '#0c3a06'), '#ffffff', size * 0.55, false);
+      word.renderOrder = 11;
+      g.add(word);
+      g.userData.sprite = word; g.userData.base = size * 0.55; g.userData.spin = 0; g.userData.wide = 3.2;
+      g.userData.halo = halo;
+      return g;
+    }
+    if (key === 'firebreath') { // a roll of flames
+      halo.scale.setScalar(size * 1.2);
+      for (let k = 0; k < 6; k++) {
+        const f = this.sprite(emojiTex('🔥', 256), '#ffffff', size * (0.38 + k * 0.05), false);
+        f.position.set((k - 2.5) * size * 0.1, (k % 2 ? 0.08 : -0.08) * size, 0.01 * k);
+        f.userData.flame = size * (0.38 + k * 0.05);
+        g.add(f);
+      }
+      g.userData.halo = halo;
+      return g;
+    }
     if (key === 'quake' || key === 'shockwave') {
       const ring = this.sprite(this.ringTex, '#ffcc66', size);
       g.add(ring);

@@ -441,6 +441,11 @@ export class ModelSkin {
     }
   }
 
+  /** Where joint j of the model is in the world (after update). */
+  jointWorld(j: number, out: THREE.Vector3): THREE.Vector3 {
+    return this.bones[j].getWorldPosition(out);
+  }
+
   dispose() {
     for (const m of this.materials) m.dispose();
   }

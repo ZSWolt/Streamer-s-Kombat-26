@@ -289,6 +289,17 @@ export class AudioEngine {
         this.tone(t, 0.13, g, { f0: 150 * rnd, f1: 55, vol: 0.7 });
         this.noise(t + 0.02, 0.12, g, { type: 'bandpass', f0: 900, f1: 400, q: 2, vol: 0.35 });
         break;
+      case 'pop': // a balloon going
+        this.noise(t, 0.06, g, { type: 'highpass', f0: 1800 * rnd, vol: 0.9, attack: 0.001 });
+        this.tone(t, 0.05, g, { f0: 900 * rnd, f1: 300, vol: 0.25, type: 'square' });
+        wet.gain.value = 0.3;
+        break;
+      case 'fire': // a gust of flame: a roar that swells, and crackles
+        this.noise(t, 0.6, g, { type: 'bandpass', f0: 280 * rnd, f1: 900, q: 0.7, vol: 0.6, attack: 0.12 });
+        this.noise(t, 0.5, g, { type: 'lowpass', f0: 600, f1: 200, vol: 0.4, attack: 0.05 });
+        for (let i = 0; i < 6; i++) this.noise(t + 0.05 + Math.random() * 0.4, 0.02, g, { type: 'highpass', f0: 3000 + Math.random() * 3000, vol: 0.35, attack: 0.001 });
+        wet.gain.value = 0.25;
+        break;
       case 'scratch': // a DJ scratch: the record dragged forward and back
         this.noise(t, 0.08, g, { type: 'bandpass', f0: 450 * rnd, f1: 3200, q: 5, vol: 0.55, attack: 0.01 });
         this.tone(t, 0.08, g, { f0: 260 * rnd, f1: 1100, vol: 0.1, type: 'sawtooth' });

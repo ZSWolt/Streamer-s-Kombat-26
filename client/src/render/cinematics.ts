@@ -28,6 +28,10 @@ const HYPE: Record<string, { e: string[]; text: string; color: string; style: St
   rampage: { e: ['👊', '💥'], text: 'RAMPAGE!', color: '#e8b646', style: 'barrage' },
   highnoon: { e: ['🤠', '⭐', '🌵'], text: 'HIGH NOON', color: '#ffb347', style: 'burst' },
   pizzaprod: { e: ['🍕', '#record', '🎵'], text: 'פיצה הפקות!', color: '#ff8a1f', style: 'rain' },
+  chicken: { e: ['🍗', '🍗', '🍟'], text: 'מת על עוף!', color: '#ffb347', style: 'rain' },
+  freestyle: { e: ['🎤', '🔥', '🎵'], text: '3AM FREESTYLE', color: '#53fc18', style: 'barrage' },
+  unbox: { e: ['🎁', '✨', '📦'], text: 'הפתיחה הכי מטורפת!', color: '#3fc6ff', style: 'burst' },
+  noidea: { e: ['❓', '🤷', '🐕'], text: 'אין לי מושג!', color: '#ffb300', style: 'swarm' },
 };
 
 interface Active {
@@ -270,6 +274,52 @@ export class Cinematics {
         ctx.drop('🍕', 1.3, 0.1, 3.8);
         this.once(30, 1.75, () => { this.vfx.burst(dp.x, 0.8, '🧀', 12, 7, 0.5); this.vfx.burst(dp.x, 0.8, '🍅', 8, 6, 0.45); audio.sfx('splat', 0, 1.3); });
         text(31, 2.0, 'בתיאבון', 'SPECIAL DELIVERY', 'small', 1700);
+        break;
+      // BIGGIE
+      case 'fried': // coated, fried, golden brown
+        this.once(30, 1.2, () => { this.vfx.burst(dp.x, 1.2, '🍗', 14, 8, 0.55); audio.sfx('splat', 0, 1.2); });
+        tint(31, 1.4, '#b5651d', 0.85, 'fire');
+        if (a.t > 1.5 && Math.random() < 0.18) this.vfx.emote(dp.x, 1.6, Math.random() < 0.5 ? '🔥' : '💨', 0.6);
+        text(32, 1.8, 'פריך', 'EXTRA CRISPY', 'small', 1700);
+        break;
+      case 'homerun': // one swing of the chicken bat, and a star where they went
+        hit(30, 1.3, '#ffb347');
+        this.once(31, 1.3, () => this.vfx.burst(dp.x, 1.2, '🍗', 8, 7, 0.5));
+        ctx.fly(1.3);
+        text(32, 1.9, 'HOME RUN', 'מחבט עוף', 'small', 1800);
+        this.once(33, 2.7, () => { def.fx.hidden = true; this.vfx.bigProp('⭐', dp.x, 5.2, 1.2, new THREE.Vector3(0, 0, 0), 0.8, 6); audio.sfx('coin'); });
+        break;
+      // YAKIR
+      case 'banned':
+        this.once(30, 1.2, () => { this.renderer.flash('#7a3cff', 0.9, 500); this.hud.bigText('BANNED', 'לצמיתות', 'ending', 2200); audio.sfx('slam'); });
+        vanish(31, 1.7, '🔨', '⛔');
+        break;
+      case 'micdrop': ctx.drop('🎤', 1.3, 0.1, 3.4); this.once(30, 1.75, () => audio.sfx('scratch')); text(31, 1.9, 'MIC DROP', '', 'small', 1600); break;
+      // YANIVO
+      case 'sewerbye': // down the sewer
+        this.once(30, 1.1, () => { this.vfx.bigProp('🕳️', dp.x, 0.15, 2.4, new THREE.Vector3(0, 0, 0), 2.6); audio.sfx('slam', 0, 0.6); });
+        ctx.sink('💨', 1.3);
+        text(31, 1.9, 'ביוב', 'SEWER CALL', 'small', 1600);
+        break;
+      case 'balloonaway': // tied to a bunch of balloons, and off
+        this.once(30, 1.1, () => { this.vfx.burst(dp.x, 2.0, '🎈', 9, 3, 0.6); audio.sfx('pop', 0, 0.5); });
+        if (a.t > 1.3) { def.fx.offsetY += dt * 1.8; if (Math.random() < 0.15) this.vfx.emote(dp.x, 2.2 + def.fx.offsetY, '🎈', 0.6); }
+        text(31, 1.8, 'KEEP IT UP', 'עף', 'small', 1700);
+        this.once(32, 3.2, () => { def.fx.hidden = true; });
+        break;
+      // TEDDY
+      case 'dogwalk': // the neighbours' dog drags them off
+        ctx.run('🐕', 1.1, 1.5);
+        this.once(30, 1.1, () => audio.sfx('bark'));
+        hit(31, 1.45, '#ffb300');
+        if (a.t > 1.5) { def.setOverride(def.lib.LYING); def.fx.offsetX += dir * dt * 3.5; if (Math.random() < 0.08) audio.sfx('bark', 0, 0.5); }
+        text(32, 1.9, 'הכלב של השכנים', 'ממליץ', 'small', 1700);
+        break;
+      case 'spicy': // the hot chip, and what it does to you
+        tint(30, 1.2, '#ff2a1a', 0.75, 'fire');
+        if (a.t > 1.2 && Math.random() < 0.25) this.vfx.emote(dp.x, 2.0, Math.random() < 0.6 ? '🔥' : '🥵', 0.6);
+        this.once(31, 1.6, () => this.vfx.burst(dp.x, 1.9, '💨', 8, 4, 0.6));
+        text(32, 1.8, 'חריף!', 'TOO SPICY', 'small', 1600);
         break;
       default: ctx.drop('💥', 1.3); break;
     }

@@ -125,6 +125,34 @@ FLAVOR.shaliachpizza = {
   intro: ['הזמנת פיצה? הגעתי.', 'שלושים דקות או שזה עליי.'], reply: ['תחתום פה.', 'טיפ זה לא חובה, אבל מומלץ.'],
   quote: 'פיצה הפקות — מגיעים חם.',
 };
+// kick.com/realbigiii
+FLAVOR.realbigiii = {
+  shouts: ['דיל!', 'מחבט עוף!', 'באקט משפחתי!'],
+  banalities: [B('מטוגן', 'EXTRA CRISPY', 'fried', 'פריך', 'מת על עוף.'), B('הום ראן', 'HOME RUN', 'homerun', 'עף', 'עוף עף.')],
+  intro: ['מישהו אמר עוף?', 'אני מת על עוף.'], reply: ['העוף שלי, לא שלך.', 'רק אחרי האוכל.'],
+  quote: 'מת על עוף.',
+};
+// kick.com/forceee
+FLAVOR.forceee = {
+  shouts: ['פריסטייל!', 'באן!', 'מיק דרופ!'],
+  banalities: [B('באן לצמיתות', 'PERMA BAN', 'banned', 'BANNED', 'יא NPC.'), B('מיק דרופ', 'MIC DROP', 'micdrop', 'MIC DROP', 'מי שאל?')],
+  intro: ['תן ביט.', 'מפ דום הוא הראפר הכי טוב בכל הזמנים.'], reply: ['יא NPC.', 'מי שאל?'],
+  quote: 'מפ דום הוא הראפר הכי טוב בכל הזמנים.',
+};
+// kick.com/yanivu
+FLAVOR.yanivu = {
+  shouts: ['Keep it up!', 'חייב לעלות!', 'ביוב!'],
+  banalities: [B('לתוך הביוב', 'SEWER CALL', 'sewerbye', 'נבלע', 'להיכנס לביוב הזה הייתה טעות.'), B('Keep It UP', 'KEEP IT UP', 'balloonaway', 'עף', 'לא חשבתי שזה כזה קשה.')],
+  intro: ['הפתיחה הכי מטורפת שהייתה לי!', 'אני חייב לעלות למעלה.'], reply: ['להיכנס לביוב הזה הייתה טעות.', 'כמה האוסף שלך שווה?'],
+  quote: 'אני חייב לעלות למעלה.',
+};
+// kick.com/tedyr1
+FLAVOR.tedyr1 = {
+  shouts: ["צ'יפס חריף!", 'הכלב של השכנים!', 'חם! חם! חם!'],
+  banalities: [B('הכלב של השכנים', "THE NEIGHBOR'S DOG", 'dogwalk', 'נגרר', 'הכלב של השכנים ממליץ.'), B('חריף', 'TOO SPICY', 'spicy', 'חריף', "הצ'יפס הזה שבר אותך.")],
+  intro: ['אין לי מושג מה אני עושה.', 'תלחצו על עוקב.'], reply: ['הכלב של השכנים שלי ממליץ.', 'אין לי מושג.'],
+  quote: 'תלחצו על עוקב — הכלב של השכנים שלי ממליץ.',
+};
 
 export const PAIR_BANTER: [string, string, string, string][] = [
   ['odedsvr', 'ronengg', 'היום מנצחים את רונן גיגי.', 'בפיפא אולי. פה — לא.'],
@@ -139,6 +167,11 @@ export const PAIR_BANTER: [string, string, string, string][] = [
   ['shaliachpizza', 'shilo', 'שילה, יוצא 89.90.', 'יש לי בדיוק. באגורות.'],
   ['shaliachpizza', 'odedsvr', 'עודד, כתבנו עליך שיר.', 'בושות. תשמיע.'],
   ['superbibi', 'shilo', 'שילה, הצוות צריך אותך.', 'רק אם יש פיצה.'],
+  ['tedyr1', 'realbigiii', 'ביגי, הכנתי לך דיס.', 'אני עונה עם עוף.'],
+  ['forceee', 'realbigiii', 'ביגי, תן ביט.', 'רק אחרי האוכל.'],
+  ['forceee', 'shotist', 'עוד סיבוב בארקייד?', 'השיא שלי נשאר שלי.'],
+  ['yanivu', 'pedrofederer', 'כמה האוסף שלך שווה?', 'יותר משלך.'],
+  ['realbigiii', 'shaliachpizza', 'יש לך גם עוף?', 'רק פיצה, אחי.'],
 ];
 
 export function banterFor(a: string, b: string): [string, string] {

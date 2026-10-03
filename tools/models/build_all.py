@@ -39,7 +39,8 @@ def blender():
 
 # file names as they arrived (typos of OHAD and SUPERBIBI), and the names the pizza delivery guy's file may come under
 ALIASES = {'oahd': 'masterohad', 'suberbibi': 'superbibi', 'bibi': 'superbibi',
-           'delivery': 'shaliachpizza', 'shliach': 'shaliachpizza', 'shaliah': 'shaliachpizza', 'sheliach': 'shaliachpizza', 'שליח': 'shaliachpizza'}
+           'delivery': 'shaliachpizza', 'shliach': 'shaliachpizza', 'shaliah': 'shaliachpizza', 'sheliach': 'shaliachpizza', 'shalih': 'shaliachpizza',
+           'שליח': 'shaliachpizza'}
 
 
 def roster_ids():
