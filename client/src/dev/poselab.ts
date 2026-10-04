@@ -16,10 +16,11 @@
 //   mat    back = back faces in red | lids = the dark insides of openings in magenta | wire | double
 //   only   draw only the meshes whose names start with one of these (only=leg_2,torso)
 //   settle let a cape hang (and settle) for this many frames in each pose before the picture is taken
+//   heads  off = every head the size it was sculpted (render/model.ts HEADS draws them bigger)
 //   shot   save the sheet to tools/shots/<shot>.jpg through the dev server
 import * as THREE from 'three';
 import { ROSTER, fighterIndex } from '../data/roster';
-import { preloadModels } from '../render/model';
+import { HEADS, preloadModels } from '../render/model';
 import * as P from '../render/pose';
 import { applyPose, buildRig } from '../render/rig';
 import { resolve as resolvePose, STATES } from './poses';
@@ -37,6 +38,7 @@ const resolve = (name: string) => resolvePose(LIB, name);
 
 async function main() {
   await preloadModels();
+  if (q.get('heads') === 'off') for (const id in HEADS) HEADS[id][0] = 1;
   const rows = Math.ceil(names.length / cols);
   const cellW = 1.9, cellH = 2.25;
   const W = Math.min(2000, Math.round(cols * Number(q.get('px') ?? 250))), H = Math.round(W * (rows * cellH) / (cols * cellW));

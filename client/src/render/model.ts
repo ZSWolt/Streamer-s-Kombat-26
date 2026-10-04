@@ -120,6 +120,28 @@ const LEGS = [[J.thighL, J.shinL, J.footL], [J.thighR, J.shinR, J.footR]] as con
 const HEAD_BOB = 0.3;
 /** how much of the toy's bending and twisting at the waist and chest a real back does */
 const TRUNK = 0.62;
+/**
+ * Heads. A sculpt comes with the head its body would really have; this game is drawn as a caricature, and the one
+ * model sculpted as one, Super Bibi, is the measure of it. Every other head is drawn bigger by what it takes for its
+ * face to be as large on the screen as his: [how many times bigger, the height in the model's rest pose (model
+ * units) of the underside of its chin or beard]. The head grows about the point at that height on the neck's own
+ * axis - up and out from where it meets the neck - so it neither sinks into a collar nor leaves the neck behind.
+ * The body under a bigger head is drawn that much smaller: a fighter is as tall as he was.
+ * (Measured on pose lab sheets with every head at one scale, `zoom=4.5&on=head&mat=flat`: the distance from the eye
+ * line to the mouth, tempered by the height of the whole head. `heads=off` in the lab shows them as sculpted.
+ * The chin's height is that of the model file as it is now: a model that is built again has to be measured again.)
+ */
+export const HEADS: Record<string, [number, number]> = {
+  superbibi: [1, 0.8],
+  odedsvr: [1.15, 0.826], ronengg: [1.19, 0.84], inde: [1.17, 0.818], igz: [1.1, 0.794], liorslife: [1.16, 0.807],
+  psyqr: [1.13, 0.801], maorameleh: [1.11, 0.815], masterohad: [1.19, 0.826], pedrofederer: [1.16, 0.827],
+  devidtur: [1.19, 0.821], shotist: [1.28, 0.815], shilo: [1.21, 0.83], philip: [1.1, 0.96], adam: [1.16, 0.838],
+  shaliachpizza: [1.23, 0.815], realbigiii: [1.31, 0.828],
+};
+/** a model that is not listed: a sculpt of real proportions, its head growing about the joint it turns on */
+const HEAD_OTHER = 1.22;
+/** a wrist this near the middle of the head (in half heights of the head) is held by it .. and this far is not */
+const HAND_BY_HEAD = [1.7, 3];
 
 const V = (a: number[]) => new THREE.Vector3(a[0], a[1], a[2]);
 const UP = new THREE.Vector3(0, 1, 0);
@@ -145,6 +167,7 @@ const FEET = [new THREE.Vector3(), new THREE.Vector3()];
 const ELBOW_REST = new THREE.Vector3(0, -1, -0.4);
 const aimQ = new THREE.Quaternion();
 const backQ = new THREE.Quaternion();
+const headQ = new THREE.Vector3();
 
 /**
  * How far to swing a thrown limb round onto the fight line (+z): the angle (about the vertical) that takes `v`,
@@ -195,6 +218,12 @@ export class ModelSkin {
   private ankle: number;
   private bodyMin: number;
   private faceOff: THREE.Vector3;
+  /** how many times bigger than sculpted the head is drawn (HEADS), and from its joint to the point it grows about */
+  private headK = 1;
+  private headAt = new THREE.Vector3();
+  /** from the head's joint to the middle of the head as it was sculpted, and half that head's height */
+  private headMid = new THREE.Vector3();
+  private headHalf = 1;
   private lift = 0;
   private rigLeg: number;
   private rigArm: number[];
@@ -298,10 +327,18 @@ export class ModelSkin {
     this.ankle = (P[J.footL].y + P[J.footR].y) / 2 - sk.sole;
     this.bodyMin = sk.height * 0.09;
     const headTop = V(sk.headTop);
-    const scale = (RIG_HEIGHT * 0.97) / (sk.height - sk.sole);
+    // a bigger head (HEADS) stands that much higher over its chin, and the fighter is no taller for it
+    const [hk, chin] = HEADS[asset.id] ?? [HEAD_OTHER, P[J.head].y];
+    this.headK = hk;
+    this.headAt.set(0, chin - P[J.head].y, 0);
+    this.headHalf = (headTop.y - chin) / 2;
+    this.headMid.set(0, chin + this.headHalf - P[J.head].y, 0);
+    this.bones[J.head].scale.setScalar(hk);
+    const scale = (RIG_HEIGHT * 0.97) / (sk.height + (hk - 1) * (headTop.y - chin) - sk.sole);
     this.root.scale.setScalar(scale);
-    this.headSize = (sk.headR ?? (headTop.y - P[J.head].y) * 0.5) * scale;
+    this.headSize = (sk.headR ?? (headTop.y - P[J.head].y) * 0.5) * scale * hk;
     this.faceOff = sk.face ? V(sk.face).sub(P[J.head]) : new THREE.Vector3(0, (headTop.y - P[J.head].y) * 0.55, sk.height * 0.07);
+    this.faceOff.sub(this.headAt).multiplyScalar(hk).add(this.headAt);
     // the procedural rig's own limb lengths
     const jl = (j: number) => joints[j].position.length();
     this.rigLeg = jl(J.shinL) + jl(J.footL);
@@ -418,6 +455,12 @@ export class ModelSkin {
       tv.copy(cp[ha]).sub(cp[ar]).applyQuaternion(backQ);
       const aim = aimTurn(tv, tv.length() / this.rigArm[s], 0.1);
       tv.applyAxisAngle(UP, aim).multiplyScalar((a + b) / this.rigArm[s]).add(p[ar]);
+      // a hand held by the head (a block, a yawn) keeps its place beside a head that is drawn bigger
+      if (this.headK !== 1) {
+        headQ.copy(this.headAt).applyQuaternion(d[J.head]).add(p[J.head]);
+        const near = 1 - smooth(HAND_BY_HEAD[0], HAND_BY_HEAD[1], tv2.copy(this.headMid).applyQuaternion(d[J.head]).add(p[J.head]).distanceTo(tv) / this.headHalf);
+        if (near > 0) tv.addScaledVector(tv2.copy(tv).sub(headQ), near * (this.headK - 1));
+      }
       tv2.copy(cp[fo]).sub(cp[ar]).applyQuaternion(backQ).applyAxisAngle(UP, aim);
       this.limb(p[ar], tv, tv2, ELBOW_REST, a, b, false, ar, fo);
       f[ha].multiplyQuaternions(f[fo], joints[ha].quaternion);
@@ -438,6 +481,8 @@ export class ModelSkin {
       b.position.y += this.lift;
       b.quaternion.multiplyQuaternions(d[j], this.bindRot[j]);
     }
+    // the head is drawn bigger about a point under its chin, not about the joint it turns on
+    if (this.headK !== 1) this.bones[J.head].position.addScaledVector(tv.copy(this.headAt).applyQuaternion(d[J.head]), 1 - this.headK);
     for (const fg of this.fingers) fg.bone.quaternion.setFromAxisAngle(fg.axis, fg.angle * this.grip[fg.hand]).multiply(fg.rest);
     this.faceAnchor.position.copy(tv.copy(this.faceOff).applyQuaternion(d[J.head])).add(p[J.head]);
     this.faceAnchor.position.y += this.lift;
