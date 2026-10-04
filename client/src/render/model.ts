@@ -393,8 +393,15 @@ export class ModelSkin {
     for (let s = 0; s < 2; s++) {
       const [th, sh, ft] = LEGS[s];
       at(th);
-      // the knee points where the rig's knee points
-      tv.copy(cp[sh]).sub(cp[th]).applyAxisAngle(UP, this.legAim[s]);
+      // The knee points where the rig's knee points: the way it stands out of the straight line from the rig's own hip
+      // to its foot. (Not simply the way the rig's thigh runs. The model's leg runs a little differently - its feet
+      // are set apart by hip widths - and on a leg that is all but straight that hair's breadth of difference was
+      // the whole of the bend: the knees went out sideways and the fighter stood bow-legged.) A straight leg has no
+      // bend to copy, and bends as knees do: forward of the thigh, or upward when the leg is held out in front.
+      la.copy(cp[ft]).sub(cp[th]);
+      tv.copy(cp[sh]).sub(cp[th]);
+      tv.addScaledVector(la, -tv.dot(la) / Math.max(1e-9, la.lengthSq()));
+      tv.addScaledVector(tv2.set(0, 0.6, 1).applyQuaternion(cq[J.hips]), 0.05 * this.rigLeg).applyAxisAngle(UP, this.legAim[s]);
       this.limb(p[th], feet[s], tv, tv2.set(0, 0, 1).applyQuaternion(cq[J.hips]), bindPos[th].distanceTo(bindPos[sh]), bindPos[sh].distanceTo(bindPos[ft]), true, th, sh);
       // a planted foot lies flat, turned the way the rig's foot is turned; a raised one does what the rig's does
       tv.set(0, 0, 1).applyQuaternion(cq[ft]);
